@@ -27,6 +27,8 @@ class Labeler {
 
 public:
 	Alphabet m_labelAlphabet;
+	Alphabet m_seglabelAlphabet;
+	hash_set<string> ignoreLabels;
 	hash_map<string, int> m_feat_stats;
 	hash_map<string, int> m_word_stats;
 	hash_map<string, int> m_char_stats;

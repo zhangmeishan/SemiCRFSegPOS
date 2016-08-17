@@ -60,8 +60,8 @@ public:
     dropProb = 0.0;
 
     linearHiddenSize = 30;
-    hiddenSize = 200;
-    rnnHiddenSize = 300;
+    hiddenSize = 100;
+    rnnHiddenSize = 30;
     wordEmbSize = 50;
     wordcontext = 2;
     wordEmbFineTune = true;

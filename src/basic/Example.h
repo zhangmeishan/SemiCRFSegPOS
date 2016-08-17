@@ -8,8 +8,7 @@
 #ifndef SRC_EXAMPLE_H_
 #define SRC_EXAMPLE_H_
 
-#include <vector>
-#include <string>
+#include "MyLib.h"
 
 using namespace std;
 struct Feature {
@@ -35,24 +34,26 @@ public:
 class Example {
 
 public:
-  vector<vector<double> > m_labels;
-  vector<Feature> m_features;
+	vector<vector<dtype> > m_labels;
+	vector<vector<vector<dtype> > > m_seglabels;
+	vector<Feature> m_features;
 
 public:
-  Example()
-  {
+	Example()
+	{
 
-  }
-  virtual ~Example()
-  {
+	}
+	virtual ~Example()
+	{
 
-  }
+	}
 
-  void clear()
-  {
-    m_labels.clear();
-    m_features.clear();
-  }
+	void clear()
+	{
+		m_features.clear();
+		clearVec(m_labels);
+		clearVec(m_seglabels);		
+	}
 
 
 };

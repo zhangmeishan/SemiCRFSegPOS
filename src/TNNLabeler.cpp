@@ -23,6 +23,8 @@ int Labeler::createAlphabet(const vector<Instance>& vecInsts) {
 	int numInstance;
 
 	m_labelAlphabet.clear();
+	m_seglabelAlphabet.clear();
+	ignoreLabels.clear();
 
 	for (numInstance = 0; numInstance < vecInsts.size(); numInstance++) {
 		const Instance *pInstance = &vecInsts[numInstance];
@@ -36,6 +38,14 @@ int Labeler::createAlphabet(const vector<Instance>& vecInsts) {
 		int curInstSize = labels.size();
 		int labelId;
 		for (int i = 0; i < curInstSize; ++i) {
+			if (is_start_label(labels[i])){
+				labelId = m_seglabelAlphabet.from_string(labels[i].substr(2));
+			}
+			else if (labels[i].length() == 1) {
+				// usually O or o, trick
+				labelId = m_seglabelAlphabet.from_string(labels[i]);
+				ignoreLabels.insert(labels[i]);
+			}
 			labelId = m_labelAlphabet.from_string(labels[i]);
 
 			string curword = normalize_to_lowerwithdigit(words[i]);
@@ -58,7 +68,10 @@ int Labeler::createAlphabet(const vector<Instance>& vecInsts) {
 
 	cout << numInstance << " " << endl;
 	cout << "Label num: " << m_labelAlphabet.size() << endl;
+	cout << "Seg Label num: " << m_seglabelAlphabet.size() << endl;
 	m_labelAlphabet.set_fixed_flag(true);
+	m_seglabelAlphabet.set_fixed_flag(true);
+	ignoreLabels.insert(unknownkey);
 
 	return 0;
 }
@@ -104,7 +117,6 @@ void Labeler::extractFeature(Feature& feat, const Instance* pInstance, int idx) 
 	string curWord = idx >= 0 && idx < sentsize ? normalize_to_lowerwithdigit(words[idx]) : nullkey;
 
 	// word features
-
 	feat.words.push_back(curWord);
 
 	// char features
@@ -127,12 +139,13 @@ void Labeler::convert2Example(const Instance* pInstance, Example& exam) {
 	exam.clear();
 	const vector<string> &labels = pInstance->labels;
 	int curInstSize = labels.size();
+	
 	for (int i = 0; i < curInstSize; ++i) {
 		string orcale = labels[i];
 
-		int numLabel1s = m_labelAlphabet.size();
-		vector<double> curlabels;
-		for (int j = 0; j < numLabel1s; ++j) {
+		int numLabel = m_labelAlphabet.size();
+		vector<dtype> curlabels;
+		for (int j = 0; j < numLabel; ++j) {
 			string str = m_labelAlphabet.from_id(j);
 			if (str.compare(orcale) == 0)
 				curlabels.push_back(1.0);
@@ -144,6 +157,37 @@ void Labeler::convert2Example(const Instance* pInstance, Example& exam) {
 		Feature feat;
 		extractFeature(feat, pInstance, i);
 		exam.m_features.push_back(feat);
+	}
+
+	resizeVec(exam.m_seglabels, curInstSize, curInstSize, m_seglabelAlphabet.size());
+	assignVec(exam.m_seglabels, 0.0);
+	vector<segIndex> segs;
+	getSegs(labels, segs);
+	for (int idx = 0; idx < segs.size(); idx++){
+		string orcale = segs[idx].label;
+		int numLabel = m_seglabelAlphabet.size();
+		for (int j = 0; j < numLabel; ++j) {
+			string str = m_seglabelAlphabet.from_id(j);
+			if (str.compare(orcale) == 0)
+				exam.m_seglabels[segs[idx].start][segs[idx].end][j] = 1.0;
+			else
+				exam.m_seglabels[segs[idx].start][segs[idx].end][j] = 0.0;
+		}
+	}
+
+	// O or o
+	for (int i = 0; i < curInstSize; ++i) {
+		string orcale = labels[i];
+		if (orcale.length() == 1){
+			int numLabel = m_seglabelAlphabet.size();
+			for (int j = 0; j < numLabel; ++j) {
+				string str = m_seglabelAlphabet.from_id(j);
+				if (str.compare(orcale) == 0)
+					exam.m_seglabels[i][i][j] = 1.0;
+				else
+					exam.m_seglabels[i][i][j] = 0.0;
+			}
+		}
 	}
 }
 
@@ -209,15 +253,8 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 		m_classifier._words.initial(m_word_stats, m_options.wordCutOff, m_options.wordEmbSize, 0, m_options.wordEmbFineTune);
 	}
 
-	m_char_stats[unknownkey] = m_options.wordCutOff + 1;
-	if (charEmbFile != "") {
-		m_classifier._chars.initial(m_char_stats, m_options.charCutOff, charEmbFile, m_options.charEmbFineTune);
-	}
-	else{
-		m_classifier._chars.initial(m_char_stats, m_options.charCutOff, m_options.charEmbSize, 0, m_options.charEmbFineTune);
-	}
-
-	m_classifier.init(m_options.wordcontext, m_options.charcontext, m_options.charhiddenSize, m_options.hiddenSize, m_labelAlphabet.size());
+	// use rnnHiddenSize to replace segHiddensize
+	m_classifier.init(m_options.wordcontext, m_options.charcontext, m_options.hiddenSize, m_options.rnnHiddenSize, m_seglabelAlphabet.size());
 
 	m_classifier.setDropValue(m_options.dropProb);
 	m_classifier.setUpdateParameters(m_options.regParameter, m_options.adaAlpha, m_options.adaEps);
@@ -377,13 +414,39 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 
 int Labeler::predict(const vector<Feature>& features, vector<string>& outputs) {
 	//assert(features.size() == words.size());
-	vector<int> labelIdx;
+	NRMat<int> labelIdx;
 	m_classifier.predict(features, labelIdx);
-	outputs.clear();
+	int seq_size = features.size();
+	outputs.resize(seq_size);
+	for (int idx = 0; idx < seq_size; idx++) {
+		outputs[idx] = nullkey;
+	}
+	for (int idx = 0; idx < seq_size; idx++) {
+		for (int idy = idx; idy < features.size(); idy++) {
+			string label = m_seglabelAlphabet.from_id(labelIdx[idx][idy], unknownkey);
+			for (int i = idx; i <= idy; i++){
+				if (outputs[i] != nullkey) {
+					std::cout << "predict error" << std::endl;
+				}
+			}
+			if (ignoreLabels.find(label) != ignoreLabels.end()){
+				for (int i = idx; i <= idy; i++){
+					outputs[i] == label;
+				}
+			}
+			else{
+				outputs[idx] == "b-" + label;
+				for (int i = idx + 1; i <= idy; i++){
+					outputs[i] == "i-" + label;
+				}
+			}			
+		}
 
-	for (int idx = 0; idx < features.size(); idx++) {
-		string label = m_labelAlphabet.from_id(labelIdx[idx]);
-		outputs.push_back(label);
+		for (int idx = 0; idx < seq_size; idx++) {
+			if (outputs[idx] == nullkey){
+				std::cout << "predict error" << std::endl;
+			}
+		}
 	}
 
 	return 0;
