@@ -36,6 +36,8 @@ public:
   bool charEmbFineTune;
   int charhiddenSize;
 
+  int maxsegLen;
+
   int verboseIter;
   bool saveIntermediate;
   bool train;
@@ -80,7 +82,7 @@ public:
     seg = false;
     atomLayers = 1;
     rnnLayers = 1;
-
+	maxsegLen = 8;
   }
 
   virtual ~Options() {
@@ -154,7 +156,8 @@ public:
         atomLayers = atoi(pr.second.c_str());
       if (pr.first == "rnnLayers")
         rnnLayers = atoi(pr.second.c_str());
-
+	  if (pr.first == "maxsegLen")
+		  maxsegLen = atoi(pr.second.c_str());
     }
   }
 
@@ -193,6 +196,7 @@ public:
     std::cout << "seg = " << seg << std::endl;
     std::cout << "atomLayers = " << atomLayers << std::endl;
     std::cout << "rnnLayers = " << rnnLayers << std::endl;
+	std::cout << "maxsegLen = " << maxsegLen << std::endl;
   }
 
   void load(const std::string& infile) {

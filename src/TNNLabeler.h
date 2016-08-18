@@ -28,6 +28,7 @@ class Labeler {
 public:
 	Alphabet m_labelAlphabet;
 	Alphabet m_seglabelAlphabet;
+	vector<int> maxLabelLength;
 	hash_set<string> ignoreLabels;
 	hash_map<string, int> m_feat_stats;
 	hash_map<string, int> m_word_stats;
@@ -54,8 +55,8 @@ public:
 	void extractLinearFeatures(vector<string>& features, const Instance* pInstance, int idx);
 	void extractFeature(Feature& feat, const Instance* pInstance, int idx);
 
-	void convert2Example(const Instance* pInstance, Example& exam);
-	void initialExamples(const vector<Instance>& vecInsts, vector<Example>& vecExams);
+	void convert2Example(const Instance* pInstance, Example& exam, bool bTrain = false);
+	void initialExamples(const vector<Instance>& vecInsts, vector<Example>& vecExams, bool bTrain = false);
 
 public:
 	void train(const string& trainFile, const string& devFile, const string& testFile, const string& modelFile, const string& optionFile, const string& wordEmbFile, const string& charEmbFile);

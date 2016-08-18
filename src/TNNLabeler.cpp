@@ -135,7 +135,7 @@ void Labeler::extractFeature(Feature& feat, const Instance* pInstance, int idx) 
 
 }
 
-void Labeler::convert2Example(const Instance* pInstance, Example& exam) {
+void Labeler::convert2Example(const Instance* pInstance, Example& exam, bool bTrain) {
 	exam.clear();
 	const vector<string> &labels = pInstance->labels;
 	int curInstSize = labels.size();
@@ -159,44 +159,37 @@ void Labeler::convert2Example(const Instance* pInstance, Example& exam) {
 		exam.m_features.push_back(feat);
 	}
 
-	resizeVec(exam.m_seglabels, curInstSize, curInstSize, m_seglabelAlphabet.size());
+	resizeVec(exam.m_seglabels, curInstSize, m_options.maxsegLen, m_seglabelAlphabet.size());
 	assignVec(exam.m_seglabels, 0.0);
 	vector<segIndex> segs;
 	getSegs(labels, segs);
+	static int startIndex, disIndex, orcaleId;
 	for (int idx = 0; idx < segs.size(); idx++){
-		string orcale = segs[idx].label;
-		int numLabel = m_seglabelAlphabet.size();
-		for (int j = 0; j < numLabel; ++j) {
-			string str = m_seglabelAlphabet.from_id(j);
-			if (str.compare(orcale) == 0)
-				exam.m_seglabels[segs[idx].start][segs[idx].end][j] = 1.0;
-			else
-				exam.m_seglabels[segs[idx].start][segs[idx].end][j] = 0.0;
+		orcaleId =  m_seglabelAlphabet.from_string(segs[idx].label);
+		startIndex = segs[idx].start;
+		disIndex = segs[idx].end - segs[idx].start;
+		if (disIndex < m_options.maxsegLen && orcaleId >= 0) { 
+			exam.m_seglabels[startIndex][disIndex][orcaleId] = 1.0;
+			if (maxLabelLength[orcaleId] < disIndex + 1) maxLabelLength[orcaleId] = disIndex + 1;
 		}
 	}
 
 	// O or o
 	for (int i = 0; i < curInstSize; ++i) {
-		string orcale = labels[i];
-		if (orcale.length() == 1){
-			int numLabel = m_seglabelAlphabet.size();
-			for (int j = 0; j < numLabel; ++j) {
-				string str = m_seglabelAlphabet.from_id(j);
-				if (str.compare(orcale) == 0)
-					exam.m_seglabels[i][i][j] = 1.0;
-				else
-					exam.m_seglabels[i][i][j] = 0.0;
-			}
+		if (labels[i].length() == 1){
+			orcaleId = m_seglabelAlphabet.from_string(labels[i]);
+			exam.m_seglabels[i][0][orcaleId] = 1.0;
+			if (maxLabelLength[orcaleId] < 1) maxLabelLength[orcaleId] = 1;
 		}
 	}
 }
 
-void Labeler::initialExamples(const vector<Instance>& vecInsts, vector<Example>& vecExams) {
+void Labeler::initialExamples(const vector<Instance>& vecInsts, vector<Example>& vecExams, bool bTrain) {
 	int numInstance;
 	for (numInstance = 0; numInstance < vecInsts.size(); numInstance++) {
 		const Instance *pInstance = &vecInsts[numInstance];
 		Example curExam;
-		convert2Example(pInstance, curExam);
+		convert2Example(pInstance, curExam, bTrain);
 		vecExams.push_back(curExam);
 
 		if ((numInstance + 1) % m_options.verboseIter == 0) {
@@ -245,6 +238,26 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 		addTestAlpha(otherInsts[idx]);
 	}
 
+	vector<Example> trainExamples, devExamples, testExamples;
+	maxLabelLength.resize(m_seglabelAlphabet.size());
+	assignVec(maxLabelLength, 0);
+	initialExamples(trainInsts, trainExamples, true);
+	//print length information
+	std::cout << "Predefined max seg length: " << m_options.maxsegLen << std::endl;
+	for (int j = 0; j < m_seglabelAlphabet.size(); j++){
+		std::cout << "max length of label " << m_seglabelAlphabet.from_id(j) << ": " << maxLabelLength[j] << std::endl;
+	}
+	m_classifier._loss.initial(maxLabelLength, m_options.maxsegLen);
+	initialExamples(devInsts, devExamples);
+	initialExamples(testInsts, testExamples);
+
+	vector<int> otherInstNums(otherInsts.size());
+	vector<vector<Example> > otherExamples(otherInsts.size());
+	for (int idx = 0; idx < otherInsts.size(); idx++) {
+		initialExamples(otherInsts[idx], otherExamples[idx]);
+		otherInstNums[idx] = otherExamples[idx].size();
+	}
+
 	m_word_stats[unknownkey] = m_options.wordCutOff + 1;
 	if (wordEmbFile != "") {
 		m_classifier._words.initial(m_word_stats, m_options.wordCutOff, wordEmbFile, m_options.wordEmbFineTune);
@@ -259,17 +272,6 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 	m_classifier.setDropValue(m_options.dropProb);
 	m_classifier.setUpdateParameters(m_options.regParameter, m_options.adaAlpha, m_options.adaEps);
 
-	vector<Example> trainExamples, devExamples, testExamples;
-	initialExamples(trainInsts, trainExamples);
-	initialExamples(devInsts, devExamples);
-	initialExamples(testInsts, testExamples);
-
-	vector<int> otherInstNums(otherInsts.size());
-	vector<vector<Example> > otherExamples(otherInsts.size());
-	for (int idx = 0; idx < otherInsts.size(); idx++) {
-		initialExamples(otherInsts[idx], otherExamples[idx]);
-		otherInstNums[idx] = otherExamples[idx].size();
-	}
 
 	dtype bestDIS = 0;
 
@@ -422,30 +424,31 @@ int Labeler::predict(const vector<Feature>& features, vector<string>& outputs) {
 		outputs[idx] = nullkey;
 	}
 	for (int idx = 0; idx < seq_size; idx++) {
-		for (int idy = idx; idy < features.size(); idy++) {
-			string label = m_seglabelAlphabet.from_id(labelIdx[idx][idy], unknownkey);
-			for (int i = idx; i <= idy; i++){
+		for (int dist = 0; idx + dist < seq_size && dist < m_options.maxsegLen; dist++) {
+			if (labelIdx[idx][dist] < 0) continue;
+			string label = m_seglabelAlphabet.from_id(labelIdx[idx][dist], unknownkey);
+			for (int i = idx; i <= idx + dist; i++){
 				if (outputs[i] != nullkey) {
 					std::cout << "predict error" << std::endl;
 				}
 			}
 			if (ignoreLabels.find(label) != ignoreLabels.end()){
-				for (int i = idx; i <= idy; i++){
-					outputs[i] == label;
+				for (int i = idx; i <= idx + dist; i++){
+					outputs[i] = label;
 				}
 			}
 			else{
-				outputs[idx] == "b-" + label;
-				for (int i = idx + 1; i <= idy; i++){
-					outputs[i] == "i-" + label;
+				outputs[idx] = "b-" + label;
+				for (int i = idx + 1; i <= idx + dist; i++){
+					outputs[i] = "i-" + label;
 				}
 			}			
 		}
+	}
 
-		for (int idx = 0; idx < seq_size; idx++) {
-			if (outputs[idx] == nullkey){
-				std::cout << "predict error" << std::endl;
-			}
+	for (int idx = 0; idx < seq_size; idx++) {
+		if (outputs[idx] == nullkey){
+			std::cout << "predict error" << std::endl;
 		}
 	}
 

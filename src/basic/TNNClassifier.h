@@ -31,11 +31,11 @@ public:
 	vector<LinearNode> output;
 
 	NRMat<PNode> poutput; //use to store pointer matrix of outputs
+	int max_seg_length;
 
 	// node pointers
 public:
 	ComputionGraph() : Graph(){
-		createNodes(max_sentence_length);
 	}
 
 	~ComputionGraph(){
@@ -44,8 +44,9 @@ public:
 
 public:
 	//allocate enough nodes 
-	inline void createNodes(int sent_length){
-		int segNum = sent_length * sent_length;
+	inline void createNodes(int sent_length, int maxsegLen){
+		max_seg_length = maxsegLen;
+		int segNum = sent_length * max_seg_length;
 		word_inputs.resize(sent_length);
 		word_window.resize(sent_length);
 		word_hidden1.resize(sent_length);
@@ -78,8 +79,7 @@ public:
 			outputseg[idx].setParam(&seglayer_project);
 			outputseg[idx].setFunctions(&tanh, &tanh_deri);
 			output[idx].setParam(&olayer_linear);
-		}
-
+		}		
 	}
 
 
@@ -112,24 +112,24 @@ public:
 		static int offset;
 		vector<PNode> segnodes;
 		for (int idx = 0; idx < seq_size; idx++) {
-			offset = idx * seq_size;
+			offset = idx * max_seg_length;
 			segnodes.clear();
-			for (int idy = idx; idy < seq_size; idy++) {
-				segnodes.push_back(&word_hidden1[idy]);
-				outputseg[offset + idy].forward(segnodes);
-				outputseg[offset + idy].traverseNodes(execs);
+			for (int dist = 0; idx + dist < seq_size && dist < max_seg_length; dist++) {
+				segnodes.push_back(&word_hidden1[idx + dist]);
+				outputseg[offset + dist].forward(segnodes);
+				outputseg[offset + dist].traverseNodes(execs);
 			}
 		}
 		
-		poutput.resize(seq_size, seq_size);
+		poutput.resize(seq_size, max_seg_length);
 		poutput = NULL;
 		offset = 0;
 		for (int idx = 0; idx < seq_size; idx++) {
-			offset = idx * seq_size;
-			for (int idy = idx; idy < seq_size; idy++) {
-				output[offset + idy].forward(&(outputseg[offset + idy]._output));
-				execs.push_back(&output[offset + idy]);
-				poutput[idx][idy] = &output[offset + idy];
+			offset = idx * max_seg_length;
+			for (int dist = 0; idx + dist < seq_size && dist < max_seg_length; dist++) {
+				output[offset + dist].forward(&(outputseg[offset + dist]._output));
+				execs.push_back(&output[offset + dist]);
+				poutput[idx][dist] = &output[offset + dist];
 			}
 		}
 	}
@@ -186,7 +186,7 @@ public:
 public:
 	//embeddings are initialized before this separately.
 	inline void init(int wordcontext, int charcontext, int hiddensize, int seghiddensize, int labelSize) {
-		if (_words.nVSize == 0){
+		if (_words.nVSize == 0 && _loss.labelSize > 0 && _loss.maxLen > 0){
 			std::cout << "Please initialize embeddings before this" << std::endl;
 			return;
 		}
@@ -205,11 +205,7 @@ public:
 		_seglayer_project.initial(_seghiddensize, _hiddensize, 200);
 		_olayer_linear.initial(_labelSize, _seghiddensize, false, 300);
 
-		vector<int> maxlength;
-		for (int idx = 0; idx < _labelSize; idx++){
-			maxlength.push_back(-1);
-		}
-		_loss.initial(maxlength, 400);
+		assert(_loss.labelSize == _labelSize);
 
 		//ada
 		_words.exportAdaParams(_ada);
@@ -219,6 +215,7 @@ public:
 
 
 		_pcg = new ComputionGraph();
+		_pcg->createNodes(ComputionGraph::max_sentence_length, _loss.maxLen);
 		_pcg->initial(_words, _tanh_project, _seglayer_project, _olayer_linear, _wordcontext);
 
 		//check grad
