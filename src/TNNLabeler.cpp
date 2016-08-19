@@ -18,6 +18,10 @@ Labeler::~Labeler() {
 }
 
 int Labeler::createAlphabet(const vector<Instance>& vecInsts) {
+	if (vecInsts.size() == 0){
+		std::cout << "training set empty" << std::endl;
+		return -1;
+	}
 	cout << "Creating Alphabet..." << endl;
 
 	int numInstance;
@@ -25,6 +29,10 @@ int Labeler::createAlphabet(const vector<Instance>& vecInsts) {
 	m_labelAlphabet.clear();
 	m_seglabelAlphabet.clear();
 	ignoreLabels.clear();
+
+
+	int typeNum = vecInsts[0].typefeatures[0].size();
+	m_type_stats.resize(typeNum);
 
 	for (numInstance = 0; numInstance < vecInsts.size(); numInstance++) {
 		const Instance *pInstance = &vecInsts[numInstance];
@@ -34,7 +42,11 @@ int Labeler::createAlphabet(const vector<Instance>& vecInsts) {
 		const vector<vector<string> > &sparsefeatures = pInstance->sparsefeatures;
 		const vector<vector<string> > &charfeatures = pInstance->charfeatures;
 
-		vector<string> features;
+		const vector<vector<string> > &typefeatures = pInstance->typefeatures;
+		for (int iter_type = 0; iter_type < typefeatures.size(); iter_type++) {
+			assert(typeNum == typefeatures[iter_type].size());
+		}
+
 		int curInstSize = labels.size();
 		int labelId;
 		for (int i = 0; i < curInstSize; ++i) {
@@ -52,6 +64,8 @@ int Labeler::createAlphabet(const vector<Instance>& vecInsts) {
 			m_word_stats[curword]++;
 			for (int j = 0; j < charfeatures[i].size(); j++)
 				m_char_stats[charfeatures[i][j]]++;
+			for (int j = 0; j < typefeatures[i].size(); j++)
+				m_type_stats[j][typefeatures[i][j]]++;
 			for (int j = 0; j < sparsefeatures[i].size(); j++)
 				m_feat_stats[sparsefeatures[i][j]]++;
 		}
@@ -85,12 +99,23 @@ int Labeler::addTestAlpha(const vector<Instance>& vecInsts) {
 
 		const vector<string> &words = pInstance->words;
 		const vector<vector<string> > &charfeatures = pInstance->charfeatures;
+		const vector<vector<string> > &typefeatures = pInstance->typefeatures;
+		for (int iter_type = 0; iter_type < typefeatures.size(); iter_type++) {
+			assert(m_type_stats.size() == typefeatures[iter_type].size());
+		}
 		int curInstSize = words.size();
 		for (int i = 0; i < curInstSize; ++i) {
 			string curword = normalize_to_lowerwithdigit(words[i]);
 			if (!m_options.wordEmbFineTune)m_word_stats[curword]++;
-			for (int j = 1; j < charfeatures[i].size(); j++){
-				m_char_stats[charfeatures[i][j]]++;
+			if (!m_options.charEmbFineTune){
+				for (int j = 1; j < charfeatures[i].size(); j++){
+					m_char_stats[charfeatures[i][j]]++;
+				}
+			}
+			if (!m_options.typeEmbFineTune){
+				for (int j = 0; j < typefeatures[i].size(); j++){
+					m_type_stats[j][typefeatures[i][j]]++;
+				}
 			}
 		}
 
@@ -126,6 +151,13 @@ void Labeler::extractFeature(Feature& feat, const Instance* pInstance, int idx) 
 	const vector<string>& cur_chars = charfeatures[idx];
 	for (int i = 0; i < cur_chars.size(); i++) {
 		feat.chars.push_back(cur_chars[i]);
+	}
+
+	const vector<vector<string> > &typefeatures = pInstance->typefeatures;
+
+	const vector<string>& cur_types = typefeatures[idx];
+	for (int i = 0; i < cur_types.size(); i++) {
+		feat.types.push_back(cur_types[i]);
 	}
 
 	const vector<string>& linear_features = pInstance->sparsefeatures[idx];
@@ -205,8 +237,7 @@ void Labeler::initialExamples(const vector<Instance>& vecInsts, vector<Example>&
 	cout << numInstance << " " << endl;
 }
 
-void Labeler::train(const string& trainFile, const string& devFile, const string& testFile, const string& modelFile, const string& optionFile,
-	const string& wordEmbFile, const string& charEmbFile) {
+void Labeler::train(const string& trainFile, const string& devFile, const string& testFile, const string& modelFile, const string& optionFile) {
 	if (optionFile != "")
 		m_options.load(optionFile);
 	m_options.showOptions();
@@ -259,11 +290,23 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 	}
 
 	m_word_stats[unknownkey] = m_options.wordCutOff + 1;
-	if (wordEmbFile != "") {
-		m_classifier._words.initial(m_word_stats, m_options.wordCutOff, wordEmbFile, m_options.wordEmbFineTune);
+	if (m_options.wordFile != "") {
+		m_classifier._words.initial(m_word_stats, m_options.wordCutOff, m_options.wordFile, m_options.wordEmbFineTune);
 	}
 	else{
 		m_classifier._words.initial(m_word_stats, m_options.wordCutOff, m_options.wordEmbSize, 0, m_options.wordEmbFineTune);
+	}
+
+	int typeNum = m_type_stats.size();
+	m_classifier._types.resize(typeNum);
+	for (int idx = 0; idx < typeNum; idx++){
+		m_type_stats[idx][unknownkey] = 1; // use the s
+		if (m_options.typeFiles.size() > idx && m_options.typeFiles[idx] != "") {
+			m_classifier._types[idx].initial(m_type_stats[idx], 0, m_options.typeFiles[idx], m_options.typeEmbFineTune);
+		}
+		else{
+			m_classifier._types[idx].initial(m_type_stats[idx], 0, m_options.typeEmbSize, (idx + 1) * 1000, m_options.typeEmbFineTune);
+		}
 	}
 
 	// use rnnHiddenSize to replace segHiddensize
@@ -493,8 +536,7 @@ void Labeler::writeModelFile(const string& outputModelFile) {
 
 int main(int argc, char* argv[]) {
 
-	std::string trainFile = "", devFile = "", testFile = "", modelFile = "";
-	std::string wordEmbFile = "", charEmbFile = "", optionFile = "";
+	std::string trainFile = "", devFile = "", testFile = "", modelFile = "", optionFile = "";
 	std::string outputFile = "";
 	bool bTrain = false;
 	dsr::Argument_helper ah;
@@ -505,8 +547,6 @@ int main(int argc, char* argv[]) {
 	ah.new_named_string("test", "testCorpus", "named_string",
 		"testing corpus to train a model or input file to test a model, optional when training and must when testing", testFile);
 	ah.new_named_string("model", "modelFile", "named_string", "model file, must when training and testing", modelFile);
-	ah.new_named_string("word", "wordEmbFile", "named_string", "pretrained word embedding file to train a model, optional when training", wordEmbFile);
-	ah.new_named_string("char", "charEmbFile", "named_string", "pretrained char embedding file to train a model, optional when training", charEmbFile);
 	ah.new_named_string("option", "optionFile", "named_string", "option file to train a model, optional when training", optionFile);
 	ah.new_named_string("output", "outputFile", "named_string", "output file to test, must when testing", outputFile);
 
@@ -515,7 +555,7 @@ int main(int argc, char* argv[]) {
 	Labeler tagger;
 	tagger.m_pipe.max_sentense_size = ComputionGraph::max_sentence_length;
 	if (bTrain) {
-		tagger.train(trainFile, devFile, testFile, modelFile, optionFile, wordEmbFile, charEmbFile);
+		tagger.train(trainFile, devFile, testFile, modelFile, optionFile);
 	}
 	else {
 		tagger.test(testFile, outputFile, modelFile);

@@ -33,19 +33,21 @@ public:
 
     m_instance.allocate(length);
 
-    for (int i = 0; i < length; ++i) {
-      vector<string> vecInfo;
-      split_bychar(vecLine[i], vecInfo, ' ');
-      int veclength = vecInfo.size();
-      m_instance.labels[i] = vecInfo[veclength - 1];
-      m_instance.words[i] = vecInfo[0];
-      for (int j = 1; j < veclength - 1; j++) {
-        if (is_startwith(vecInfo[j], "[S]"))
-          m_instance.sparsefeatures[i].push_back(vecInfo[j]);
-        if (is_startwith(vecInfo[j], "[C]"))
-          m_instance.charfeatures[i].push_back(vecInfo[j]);
-      }
-    }
+		for (int i = 0; i < length; ++i) {
+			vector<string> vecInfo;
+			split_bychar(vecLine[i], vecInfo, ' ');
+			int veclength = vecInfo.size();
+			m_instance.labels[i] = vecInfo[veclength - 1];
+			m_instance.words[i] = vecInfo[0];
+			for (int j = 1; j < veclength - 1; j++) {
+				if (is_startwith(vecInfo[j], "[S]"))
+					m_instance.sparsefeatures[i].push_back(vecInfo[j]);
+				if (is_startwith(vecInfo[j], "[C]"))
+					m_instance.charfeatures[i].push_back(vecInfo[j]);
+				if (is_startwith(vecInfo[j], "[T"))
+					m_instance.typefeatures[i].push_back(vecInfo[j]);
+			}
+		}
 
     return &m_instance;
   }

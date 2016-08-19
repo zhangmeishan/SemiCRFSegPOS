@@ -31,10 +31,14 @@ public:
   int wordEmbSize;
   int wordcontext;
   bool wordEmbFineTune;
+
   int charEmbSize;
   int charcontext;
   bool charEmbFineTune;
   int charhiddenSize;
+
+  int typeEmbSize;
+  bool typeEmbFineTune;
 
   int maxsegLen;
 
@@ -48,6 +52,11 @@ public:
   int relu;
   int atomLayers;
   int rnnLayers;
+
+  //embedding files
+  string wordFile;
+  string charFile;
+  vector<string> typeFiles;
 
   Options() {
     wordCutOff = 0;
@@ -72,6 +81,9 @@ public:
     charEmbFineTune = true;
     charhiddenSize = 50;
 
+	typeEmbSize = 50;
+	typeEmbFineTune = true;
+
     verboseIter = 100;
     saveIntermediate = true;
     train = false;
@@ -83,6 +95,10 @@ public:
     atomLayers = 1;
     rnnLayers = 1;
 	maxsegLen = 8;
+
+	wordFile = "";
+	charFile = "";
+	typeFiles.clear();
   }
 
   virtual ~Options() {
@@ -135,6 +151,10 @@ public:
         charEmbFineTune = (pr.second == "true") ? true : false;
       if (pr.first == "charhiddenSize")
         charhiddenSize = atoi(pr.second.c_str());
+	  if (pr.first == "typeEmbSize")
+		  typeEmbSize = atoi(pr.second.c_str());
+	  if (pr.first == "typeEmbFineTune")
+		  typeEmbFineTune = (pr.second == "true") ? true : false;
         
       if (pr.first == "verboseIter")
         verboseIter = atoi(pr.second.c_str());
@@ -158,6 +178,13 @@ public:
         rnnLayers = atoi(pr.second.c_str());
 	  if (pr.first == "maxsegLen")
 		  maxsegLen = atoi(pr.second.c_str());
+
+	  if (pr.first == "wordFile")
+		  wordFile = pr.second;
+	  if (pr.first == "charFile")
+		  charFile = pr.second;
+	  if (pr.first == "typeFile")
+		  typeFiles.push_back(pr.second);
     }
   }
 
@@ -183,6 +210,8 @@ public:
     std::cout << "charcontext = " << charcontext << std::endl;
     std::cout << "charEmbFineTune = " << charEmbFineTune << std::endl;
     std::cout << "charhiddenSize = " << charhiddenSize << std::endl;
+	std::cout << "typeEmbSize = " << typeEmbSize << std::endl;
+	std::cout << "typeEmbFineTune = " << typeEmbFineTune << std::endl;
 
     std::cout << "verboseIter = " << verboseIter << std::endl;
     std::cout << "saveItermediate = " << saveIntermediate << std::endl;
@@ -197,6 +226,12 @@ public:
     std::cout << "atomLayers = " << atomLayers << std::endl;
     std::cout << "rnnLayers = " << rnnLayers << std::endl;
 	std::cout << "maxsegLen = " << maxsegLen << std::endl;
+
+	std::cout << "wordFile = " << wordFile << std::endl;
+	std::cout << "charFile = " << charFile << std::endl;
+	for (int idx = 0; idx < typeFiles.size(); idx++) {
+		std::cout << "typeFile = " << typeFiles[idx] << std::endl;
+	}
   }
 
   void load(const std::string& infile) {

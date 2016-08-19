@@ -14,6 +14,7 @@ using namespace std;
 struct Feature {
 public:
 	vector<string> words;
+	vector<string> types;
 	vector<string> chars;
 	vector<string> linear_features;
 public:
@@ -27,6 +28,7 @@ public:
 	void clear() {
 		words.clear();
 		chars.clear();
+		types.clear();
 		linear_features.clear();
 	}
 };

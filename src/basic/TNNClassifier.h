@@ -24,7 +24,9 @@ public:
 
 public:
 	// node instances
-	vector<LookupNode> word_inputs;
+	vector<vector<LookupNode> > word_inputs;
+	vector<ConcatNode> token_repsents;
+
 	WindowBuilder word_window;
 	vector<UniNode> word_hidden1;
 	vector<SegBuilder> outputseg;
@@ -32,6 +34,7 @@ public:
 
 	NRMat<PNode> poutput; //use to store pointer matrix of outputs
 	int max_seg_length;
+	int type_num;
 
 	// node pointers
 public:
@@ -44,32 +47,41 @@ public:
 
 public:
 	//allocate enough nodes 
-	inline void createNodes(int sent_length, int maxsegLen){
+	inline void createNodes(int sent_length, int maxsegLen, int typeNum){
 		max_seg_length = maxsegLen;
+		type_num = typeNum;
 		int segNum = sent_length * max_seg_length;
 		word_inputs.resize(sent_length);
+		for (int idx = 0; idx < sent_length; idx++){
+			word_inputs[idx].resize(type_num + 1);
+		}
+		token_repsents.resize(sent_length);
 		word_window.resize(sent_length);
 		word_hidden1.resize(sent_length);
 		outputseg.resize(segNum);
 		for (int idx = 0; idx < segNum; idx++){
-			outputseg[idx].resize(sent_length);
+			outputseg[idx].resize(maxsegLen);
 		}
 		output.resize(segNum);
 	}
 
 	inline void clear(){
 		Graph::clear();
-		word_inputs.clear();
+		clearVec(word_inputs);
+		token_repsents.clear();
 		word_window.clear();
 		word_hidden1.clear();
 		outputseg.clear();
-		output.clear();
+		output.clear();		
 	}
 
 public:
-	inline void initial(LookupTable& words, UniParams& tanh_project, SegParams& seglayer_project, UniParams& olayer_linear, int wordcontext){
+	inline void initial(LookupTable& words, vector<LookupTable>& types, UniParams& tanh_project, SegParams& seglayer_project, UniParams& olayer_linear, int wordcontext){
 		for (int idx = 0; idx < word_inputs.size(); idx++) {
-			word_inputs[idx].setParam(&words);
+			word_inputs[idx][0].setParam(&words);
+			for (int idy = 1; idy < word_inputs[idx].size(); idy++){
+				word_inputs[idx][idy].setParam(&types[idy-1]);
+			}
 			word_hidden1[idx].setParam(&tanh_project);
 			word_hidden1[idx].setFunctions(&tanh, &tanh_deri);
 		}	
@@ -83,7 +95,6 @@ public:
 	}
 
 
-
 public:
 	// some nodes may behave different during training and decode, for example, dropout
 	inline void forward(const vector<Feature>& features, bool bTrain = false){
@@ -95,12 +106,20 @@ public:
 		for (int idx = 0; idx < seq_size; idx++) {
 			const Feature& feature = features[idx];
 			//input
-			word_inputs[idx].forward(feature.words[0]);
-			execs.push_back(&word_inputs[idx]);
+			word_inputs[idx][0].forward(feature.words[0]);
+			execs.push_back(&word_inputs[idx][0]);
+
+			for (int idy = 1; idy < word_inputs[idx].size(); idy++){
+				word_inputs[idx][idy].forward(feature.types[idy-1]);
+				execs.push_back(&word_inputs[idx][idy]);
+			}
+
+			token_repsents[idx].forward(getPNodes(word_inputs[idx], word_inputs[idx].size()));
+			execs.push_back(&token_repsents[idx]);
 		}
 
 		//windowlized
-		word_window.forward(getPNodes(word_inputs, seq_size));
+		word_window.forward(getPNodes(token_repsents, seq_size));
 		word_window.traverseNodes(execs);
 
 		for (int idx = 0; idx < seq_size; idx++) {
@@ -143,6 +162,7 @@ public:
 	TNNClassifier() {
 		_dropOut = 0.0;
 		_pcg = NULL;
+		_types.clear();
 	}
 
 	~TNNClassifier() {
@@ -153,10 +173,12 @@ public:
 
 public:
 	LookupTable _words;
+	vector<LookupTable> _types;
 
 	int _wordcontext, _wordwindow;
-	int _wordSize;
 	int _wordDim;
+	vector<int> _typeDims;
+	int _unitsize;
 
 
 	int _hiddensize;
@@ -193,12 +215,18 @@ public:
 		_wordcontext = wordcontext;
 		_wordwindow = 2 * _wordcontext + 1;
 		_wordDim = _words.nDim;
+		_unitsize = _wordDim;
+		_typeDims.clear();
+		for (int idx = 0; idx < _types.size(); idx++){
+			_typeDims.push_back(_types[idx].nDim);
+			_unitsize += _typeDims[idx];
+		}
 
 
 		_labelSize = labelSize;
 		_hiddensize = hiddensize;
 		_seghiddensize = seghiddensize;
-		_inputsize = _wordwindow * _wordDim;
+		_inputsize = _wordwindow * _unitsize;
 
 
 		_tanh_project.initial(_hiddensize, _inputsize, true, 100);
@@ -209,17 +237,25 @@ public:
 
 		//ada
 		_words.exportAdaParams(_ada);
+		for (int idx = 0; idx < _types.size(); idx++){
+			_types[idx].exportAdaParams(_ada);
+		}
 		_tanh_project.exportAdaParams(_ada);
 		_seglayer_project.exportAdaParams(_ada);
 		_olayer_linear.exportAdaParams(_ada);
 
 
 		_pcg = new ComputionGraph();
-		_pcg->createNodes(ComputionGraph::max_sentence_length, _loss.maxLen);
-		_pcg->initial(_words, _tanh_project, _seglayer_project, _olayer_linear, _wordcontext);
+		_pcg->createNodes(ComputionGraph::max_sentence_length, _loss.maxLen, _types.size());
+		_pcg->initial(_words, _types, _tanh_project, _seglayer_project, _olayer_linear, _wordcontext);
 
 		//check grad
 		_checkgrad.add(&(_words.E), "_words.E");
+		for (int idx = 0; idx < _types.size(); idx++){
+			stringstream ss;
+			ss << "_types[" << idx << "].E";
+			_checkgrad.add(&(_types[idx].E), ss.str());
+		}
 		_checkgrad.add(&(_tanh_project.W), "_tanh_project.W");
 		_checkgrad.add(&(_tanh_project.b), "_tanh_project.b");
 		_checkgrad.add(&(_seglayer_project.B.W), "_seglayer_project.B.W");
@@ -231,6 +267,10 @@ public:
 		_checkgrad.add(&(_seglayer_project.S.W), "_seglayer_project.S.W");
 		_checkgrad.add(&(_seglayer_project.B.b), "_seglayer_project.S.b");
 		_checkgrad.add(&(_olayer_linear.W), "_olayer_linear.W");
+
+		if (_ada._params.size() != _checkgrad._params.size()){
+			std::cout << "_ada._params: " << _ada._params.size() << ",  _checkgrad._params: " << _checkgrad._params.size() << std::endl;
+		}
 	}
 
 

@@ -27,15 +27,18 @@ public:
 		for (int i = 0; i < size(); i++) {
 			sparsefeatures[i].clear();
 			charfeatures[i].clear();
+			typefeatures[i].clear();
 		}
 		sparsefeatures.clear();
 		charfeatures.clear();
+		typefeatures.clear();
 	}
 
 	void allocate(int length) {
 		clear();
 		labels.resize(length);
 		words.resize(length);
+		typefeatures.resize(length);
 		sparsefeatures.resize(length);
 		charfeatures.resize(length);
 	}
@@ -50,6 +53,9 @@ public:
 			}
 			for (int j = 0; j < anInstance.charfeatures[i].size(); j++) {
 				charfeatures[i].push_back(anInstance.charfeatures[i][j]);
+			}
+			for (int j = 0; j < anInstance.typefeatures[i].size(); j++) {
+				typefeatures[i].push_back(anInstance.typefeatures[i][j]);
 			}
 		}
 
@@ -134,6 +140,7 @@ public:
 public:
 	vector<string> labels;
 	vector<string> words;
+	vector<vector<string> > typefeatures;
 	vector<vector<string> > sparsefeatures;
 	vector<vector<string> > charfeatures;
 

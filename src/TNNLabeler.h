@@ -33,6 +33,7 @@ public:
 	hash_map<string, int> m_feat_stats;
 	hash_map<string, int> m_word_stats;
 	hash_map<string, int> m_char_stats;
+	vector<hash_map<string, int> > m_type_stats;
 
 public:
 	Options m_options;
@@ -59,7 +60,7 @@ public:
 	void initialExamples(const vector<Instance>& vecInsts, vector<Example>& vecExams, bool bTrain = false);
 
 public:
-	void train(const string& trainFile, const string& devFile, const string& testFile, const string& modelFile, const string& optionFile, const string& wordEmbFile, const string& charEmbFile);
+	void train(const string& trainFile, const string& devFile, const string& testFile, const string& modelFile, const string& optionFile);
 	int predict(const vector<Feature>& features, vector<string>& outputs);
 	void test(const string& testFile, const string& outputFile, const string& modelFile);
 
