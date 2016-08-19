@@ -41,7 +41,7 @@ struct SegParams {
 // we can rewrite it as one node, but many duplicated codes
 class SegBuilder : NodeBuilder{
 public:
-	SegParams* param;
+	SegParams* _param;
 
 	int _nSize;
 	int _inDim;
@@ -60,9 +60,9 @@ public:
 	}
 
 	inline void setParam(SegParams* paramInit) {
-		param = paramInit;
-		_inDim = param->B.W.inDim();
-		_outDim = param->B.W.outDim();
+		_param = paramInit;
+		_inDim = _param->B.W.inDim();
+		_outDim = _param->B.W.outDim();
 	}
 
 	inline void setFunctions(Mat(*f)(const Mat&),
@@ -95,14 +95,14 @@ public:
 		}
 
 		if (_nSize == 1){
-			_tnodes[0].setParam(&(param->S));
+			_tnodes[0].setParam(&(_param->S));
 		}
 		else{
-			_tnodes[0].setParam(&(param->B));
+			_tnodes[0].setParam(&(_param->B));
 			for (int idx = 1; idx < _nSize - 1; idx++){
-				_tnodes[idx].setParam(&(param->M));
+				_tnodes[idx].setParam(&(_param->M));
 			}
-			_tnodes[_nSize-1].setParam(&(param->E));
+			_tnodes[_nSize-1].setParam(&(_param->E));
 		}
 
 		for (int idx = 0; idx < _nSize; idx++){

@@ -29,6 +29,11 @@ public:
 
 	WindowBuilder word_window;
 	vector<UniNode> word_hidden1;
+
+	LSTMBuilder left_lstm;
+	LSTMBuilder right_lstm;
+
+	vector<BiNode> word_hidden2;
 	vector<SegBuilder> outputseg;
 	vector<LinearNode> output;
 
@@ -58,6 +63,9 @@ public:
 		token_repsents.resize(sent_length);
 		word_window.resize(sent_length);
 		word_hidden1.resize(sent_length);
+		left_lstm.resize(sent_length);
+		right_lstm.resize(sent_length);
+		word_hidden2.resize(sent_length);
 		outputseg.resize(segNum);
 		for (int idx = 0; idx < segNum; idx++){
 			outputseg[idx].resize(maxsegLen);
@@ -71,21 +79,31 @@ public:
 		token_repsents.clear();
 		word_window.clear();
 		word_hidden1.clear();
+		left_lstm.clear();
+		right_lstm.clear();
+		word_hidden2.clear();
 		outputseg.clear();
 		output.clear();		
 	}
 
 public:
-	inline void initial(LookupTable& words, vector<LookupTable>& types, UniParams& tanh_project, SegParams& seglayer_project, UniParams& olayer_linear, int wordcontext){
+	inline void initial(LookupTable& words, vector<LookupTable>& types, UniParams& tanh1_project, LSTMParams& left_lstm_project,
+		LSTMParams& right_lstm_project, BiParams& tanh2_project, SegParams& seglayer_project, UniParams& olayer_linear, int wordcontext){
 		for (int idx = 0; idx < word_inputs.size(); idx++) {
 			word_inputs[idx][0].setParam(&words);
 			for (int idy = 1; idy < word_inputs[idx].size(); idy++){
 				word_inputs[idx][idy].setParam(&types[idy-1]);
 			}
-			word_hidden1[idx].setParam(&tanh_project);
+
+			word_hidden1[idx].setParam(&tanh1_project);
 			word_hidden1[idx].setFunctions(&tanh, &tanh_deri);
+
+			word_hidden2[idx].setParam(&tanh2_project);
+			word_hidden2[idx].setFunctions(&sigmoid, &sigmoid_deri);
 		}	
 		word_window.setContext(wordcontext);
+		left_lstm.setParam(&left_lstm_project, true);
+		right_lstm.setParam(&right_lstm_project, false);
 
 		for (int idx = 0; idx < output.size(); idx++){
 			outputseg[idx].setParam(&seglayer_project);
@@ -128,13 +146,24 @@ public:
 			execs.push_back(&word_hidden1[idx]);
 		}
 
+		left_lstm.forward(getPNodes(word_hidden1, seq_size));
+		left_lstm.traverseNodes(execs);
+		right_lstm.forward(getPNodes(word_hidden1, seq_size));
+		right_lstm.traverseNodes(execs);
+
+		for (int idx = 0; idx < seq_size; idx++) {
+			//feed-forward
+			word_hidden2[idx].forward(&(left_lstm._hiddens[idx]), &(right_lstm._hiddens[idx]));
+			execs.push_back(&word_hidden2[idx]);
+		}
+
 		static int offset;
 		vector<PNode> segnodes;
 		for (int idx = 0; idx < seq_size; idx++) {
 			offset = idx * max_seg_length;
 			segnodes.clear();
 			for (int dist = 0; idx + dist < seq_size && dist < max_seg_length; dist++) {
-				segnodes.push_back(&word_hidden1[idx + dist]);
+				segnodes.push_back(&word_hidden2[idx + dist]);
 				outputseg[offset + dist].forward(segnodes);
 				outputseg[offset + dist].traverseNodes(execs);
 			}
@@ -181,17 +210,21 @@ public:
 	int _unitsize;
 
 
-	int _hiddensize;
+	int _hiddensize1;
+	int _rnnhiddensize;
+	int _hiddensize2;
 	int _seghiddensize;
 	int _inputsize;
-
-	UniParams _tanh_project; // hidden
+	LSTMParams _left_lstm_project; //left lstm
+	LSTMParams _right_lstm_project; //right lstm
+	UniParams _tanh1_project; // hidden
+	BiParams _tanh2_project; // hidden
 	SegParams _seglayer_project; //segmentation
 	UniParams _olayer_linear; // output
 	
 
 	//SoftMaxLoss _loss;
-	Semi0CRFMLLoss _loss;
+	SemiCRFMLLoss _loss;
 
 	int _labelSize;
 
@@ -207,7 +240,7 @@ public:
 
 public:
 	//embeddings are initialized before this separately.
-	inline void init(int wordcontext, int charcontext, int hiddensize, int seghiddensize, int labelSize) {
+	inline void init(int wordcontext, int charcontext, int hiddensize1, int rnnhiddensize, int hiddensize2, int seghiddensize, int labelSize) {
 		if (_words.nVSize == 0 && _loss.labelSize > 0 && _loss.maxLen > 0){
 			std::cout << "Please initialize embeddings before this" << std::endl;
 			return;
@@ -224,14 +257,19 @@ public:
 
 
 		_labelSize = labelSize;
-		_hiddensize = hiddensize;
+		_hiddensize1 = hiddensize1;
+		_rnnhiddensize = rnnhiddensize;
+		_hiddensize2 = hiddensize2;
 		_seghiddensize = seghiddensize;
 		_inputsize = _wordwindow * _unitsize;
 
 
-		_tanh_project.initial(_hiddensize, _inputsize, true, 100);
-		_seglayer_project.initial(_seghiddensize, _hiddensize, 200);
-		_olayer_linear.initial(_labelSize, _seghiddensize, false, 300);
+		_tanh1_project.initial(_hiddensize1, _inputsize, true, 100);
+		_left_lstm_project.initial(rnnhiddensize, _hiddensize1, 200);
+		_right_lstm_project.initial(rnnhiddensize, _hiddensize1, 300);
+		_tanh2_project.initial(_hiddensize1, rnnhiddensize, rnnhiddensize, true, 400);
+		_seglayer_project.initial(_seghiddensize, _hiddensize2, 500);
+		_olayer_linear.initial(_labelSize, _seghiddensize, false, 600);
 
 		assert(_loss.labelSize == _labelSize);
 
@@ -240,14 +278,18 @@ public:
 		for (int idx = 0; idx < _types.size(); idx++){
 			_types[idx].exportAdaParams(_ada);
 		}
-		_tanh_project.exportAdaParams(_ada);
+		_tanh1_project.exportAdaParams(_ada);
+		_left_lstm_project.exportAdaParams(_ada);
+		_right_lstm_project.exportAdaParams(_ada);
+		_tanh2_project.exportAdaParams(_ada);
 		_seglayer_project.exportAdaParams(_ada);
 		_olayer_linear.exportAdaParams(_ada);
+		_loss.exportAdaParams(_ada);
 
 
 		_pcg = new ComputionGraph();
 		_pcg->createNodes(ComputionGraph::max_sentence_length, _loss.maxLen, _types.size());
-		_pcg->initial(_words, _types, _tanh_project, _seglayer_project, _olayer_linear, _wordcontext);
+		_pcg->initial(_words, _types, _tanh1_project, _left_lstm_project, _right_lstm_project, _tanh2_project, _seglayer_project, _olayer_linear, _wordcontext);
 
 		//check grad
 		_checkgrad.add(&(_words.E), "_words.E");
@@ -256,8 +298,45 @@ public:
 			ss << "_types[" << idx << "].E";
 			_checkgrad.add(&(_types[idx].E), ss.str());
 		}
-		_checkgrad.add(&(_tanh_project.W), "_tanh_project.W");
-		_checkgrad.add(&(_tanh_project.b), "_tanh_project.b");
+		_checkgrad.add(&(_tanh1_project.W), "_tanh1_project.W");
+		_checkgrad.add(&(_tanh1_project.b), "_tanh1_project.b");
+
+		_checkgrad.add(&(_left_lstm_project.input.W1), "_left_lstm_project.input.W1");
+		_checkgrad.add(&(_left_lstm_project.input.W2), "_left_lstm_project.input.W2");
+		_checkgrad.add(&(_left_lstm_project.input.W3), "_left_lstm_project.input.W3");
+		_checkgrad.add(&(_left_lstm_project.input.b), "_left_lstm_project.input.b");
+		_checkgrad.add(&(_left_lstm_project.forget.W1), "_left_lstm_project.forget.W1");
+		_checkgrad.add(&(_left_lstm_project.forget.W2), "_left_lstm_project.forget.W2");
+		_checkgrad.add(&(_left_lstm_project.forget.W3), "_left_lstm_project.forget.W3");
+		_checkgrad.add(&(_left_lstm_project.forget.b), "_left_lstm_project.forget.b");
+		_checkgrad.add(&(_left_lstm_project.output.W1), "_left_lstm_project.output.W1");
+		_checkgrad.add(&(_left_lstm_project.output.W2), "_left_lstm_project.output.W2");
+		_checkgrad.add(&(_left_lstm_project.output.W3), "_left_lstm_project.output.W3");
+		_checkgrad.add(&(_left_lstm_project.output.b), "_left_lstm_project.output.b");
+		_checkgrad.add(&(_left_lstm_project.cell.W1), "_left_lstm_project.cell.W1");
+		_checkgrad.add(&(_left_lstm_project.cell.W2), "_left_lstm_project.cell.W2");
+		_checkgrad.add(&(_left_lstm_project.cell.b), "_left_lstm_project.cell.b");
+
+		_checkgrad.add(&(_right_lstm_project.input.W1), "_right_lstm_project.input.W1");
+		_checkgrad.add(&(_right_lstm_project.input.W2), "_right_lstm_project.input.W2");
+		_checkgrad.add(&(_right_lstm_project.input.W3), "_right_lstm_project.input.W3");
+		_checkgrad.add(&(_right_lstm_project.input.b), "_right_lstm_project.input.b");
+		_checkgrad.add(&(_right_lstm_project.forget.W1), "_right_lstm_project.forget.W1");
+		_checkgrad.add(&(_right_lstm_project.forget.W2), "_right_lstm_project.forget.W2");
+		_checkgrad.add(&(_right_lstm_project.forget.W3), "_right_lstm_project.forget.W3");
+		_checkgrad.add(&(_right_lstm_project.forget.b), "_right_lstm_project.forget.b");
+		_checkgrad.add(&(_right_lstm_project.output.W1), "_right_lstm_project.output.W1");
+		_checkgrad.add(&(_right_lstm_project.output.W2), "_right_lstm_project.output.W2");
+		_checkgrad.add(&(_right_lstm_project.output.W3), "_right_lstm_project.output.W3");
+		_checkgrad.add(&(_right_lstm_project.output.b), "_right_lstm_project.output.b");
+		_checkgrad.add(&(_right_lstm_project.cell.W1), "_right_lstm_project.cell.W1");
+		_checkgrad.add(&(_right_lstm_project.cell.W2), "_right_lstm_project.cell.W2");
+		_checkgrad.add(&(_right_lstm_project.cell.b), "_right_lstm_project.cell.b");
+
+		_checkgrad.add(&(_tanh2_project.W1), "_tanh2_project.W1");
+		_checkgrad.add(&(_tanh2_project.W2), "_tanh2_project.W2");
+		_checkgrad.add(&(_tanh2_project.b), "_tanh2_project.b");
+
 		_checkgrad.add(&(_seglayer_project.B.W), "_seglayer_project.B.W");
 		_checkgrad.add(&(_seglayer_project.B.b), "_seglayer_project.B.b");
 		_checkgrad.add(&(_seglayer_project.M.W), "_seglayer_project.M.W");
@@ -266,7 +345,9 @@ public:
 		_checkgrad.add(&(_seglayer_project.B.b), "_seglayer_project.E.b");
 		_checkgrad.add(&(_seglayer_project.S.W), "_seglayer_project.S.W");
 		_checkgrad.add(&(_seglayer_project.B.b), "_seglayer_project.S.b");
+
 		_checkgrad.add(&(_olayer_linear.W), "_olayer_linear.W");
+		_checkgrad.add(&(_loss.T), "_loss.T");
 
 		if (_ada._params.size() != _checkgrad._params.size()){
 			std::cout << "_ada._params: " << _ada._params.size() << ",  _checkgrad._params: " << _checkgrad._params.size() << std::endl;
