@@ -96,10 +96,10 @@ public:
 			}
 
 			word_hidden1[idx].setParam(&tanh1_project);
-			word_hidden1[idx].setFunctions(&tanh, &tanh_deri);
+			word_hidden1[idx].setFunctions(&relu, &relu_deri);
 
 			word_hidden2[idx].setParam(&tanh2_project);
-			word_hidden2[idx].setFunctions(&sigmoid, &sigmoid_deri);
+			word_hidden2[idx].setFunctions(&relu, &relu_deri);
 		}	
 		word_window.setContext(wordcontext);
 		left_lstm.setParam(&left_lstm_project, true);
@@ -107,7 +107,7 @@ public:
 
 		for (int idx = 0; idx < output.size(); idx++){
 			outputseg[idx].setParam(&seglayer_project);
-			outputseg[idx].setFunctions(&tanh, &tanh_deri);
+			outputseg[idx].setFunctions(&relu, &relu_deri);
 			output[idx].setParam(&olayer_linear);
 		}		
 	}
@@ -224,7 +224,7 @@ public:
 	
 
 	//SoftMaxLoss _loss;
-	SemiCRFMLLoss _loss;
+	Semi0CRFMLLoss _loss;
 
 	int _labelSize;
 
@@ -284,7 +284,7 @@ public:
 		_tanh2_project.exportAdaParams(_ada);
 		_seglayer_project.exportAdaParams(_ada);
 		_olayer_linear.exportAdaParams(_ada);
-		_loss.exportAdaParams(_ada);
+		//_loss.exportAdaParams(_ada);
 
 
 		_pcg = new ComputionGraph();
@@ -346,12 +346,13 @@ public:
 		_checkgrad.add(&(_seglayer_project.S.W), "_seglayer_project.S.W");
 		_checkgrad.add(&(_seglayer_project.B.b), "_seglayer_project.S.b");
 
-		_checkgrad.add(&(_olayer_linear.W), "_olayer_linear.W");
-		_checkgrad.add(&(_loss.T), "_loss.T");
 
-		if (_ada._params.size() != _checkgrad._params.size()){
-			std::cout << "_ada._params: " << _ada._params.size() << ",  _checkgrad._params: " << _checkgrad._params.size() << std::endl;
-		}
+		_checkgrad.add(&(_olayer_linear.W), "_olayer_linear.W");
+		//_checkgrad.add(&(_loss.T), "_loss.T");
+
+		//if (_ada._params.size() != _checkgrad._params.size()){
+		//	std::cout << "_ada._params: " << _ada._params.size() << ",  _checkgrad._params: " << _checkgrad._params.size() << std::endl;
+		//}
 	}
 
 

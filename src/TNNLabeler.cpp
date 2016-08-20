@@ -310,7 +310,7 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 	}
 
 	// use rnnHiddenSize to replace segHiddensize
-	m_classifier.init(m_options.wordcontext, m_options.charcontext, m_options.hiddenSize, m_options.rnnHiddenSize, m_options.hiddenSize, m_options.hiddenSize, m_seglabelAlphabet.size());
+	m_classifier.init(m_options.wordcontext, m_options.charcontext, m_options.hiddenSize, m_options.rnnHiddenSize, m_options.hiddenSize, m_options.segHiddenSize, m_seglabelAlphabet.size());
 
 	m_classifier.setDropValue(m_options.dropProb);
 	m_classifier.setUpdateParameters(m_options.regParameter, m_options.adaAlpha, m_options.adaEps);
@@ -355,7 +355,7 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 			eval.correct_label_count += m_classifier._eval.correct_label_count;
 
 			if ((curUpdateIter + 1) % m_options.verboseIter == 0) {
-				m_classifier.checkgrad(subExamples, curUpdateIter + 1);
+				//m_classifier.checkgrad(subExamples, curUpdateIter + 1);
 				std::cout << "current: " << updateIter + 1 << ", total block: " << batchBlock << std::endl;
 				std::cout << "Cost = " << cost << ", Tag Correct(%) = " << eval.getAccuracy() << std::endl;
 			}

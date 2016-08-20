@@ -13,14 +13,16 @@
 #include "Node.h"
 #include "Pooling.h"
 #include "UniOP.h"
+#include "TriOP.h"
 
 struct SegParams {
 	UniParams B;
 	UniParams M;
 	UniParams E;
 	UniParams S;
+	TriParams merge;
 
-	SegParams() {
+	SegParams() {		
 	}
 
 	inline void exportAdaParams(ModelUpdate& ada) {
@@ -28,6 +30,7 @@ struct SegParams {
 		M.exportAdaParams(ada);
 		E.exportAdaParams(ada);
 		S.exportAdaParams(ada);
+		merge.exportAdaParams(ada);
 	}
 
 	inline void initial(int nOSize, int nISize, int seed = 0) {
@@ -35,6 +38,7 @@ struct SegParams {
 		M.initial(nOSize, nISize, true, seed + 1);
 		E.initial(nOSize, nISize, true, seed + 2);
 		S.initial(nOSize, nISize, true, seed + 3);
+		merge.initial(nOSize, nOSize, nOSize, nOSize, true, seed + 3);
 	}
 };
 
@@ -47,22 +51,26 @@ public:
 	int _inDim;
 	int _outDim;
 
-	MaxPoolNode _output;
+	TriNode _output;
+	SumPoolNode _sum;
+	MaxPoolNode _max;
+	MinPoolNode _min;
 	vector<UniNode> _tnodes;
 
 public:
 	SegBuilder(){
-
+		clear();
 	}
 
 	~SegBuilder(){
-
+		clear();
 	}
 
 	inline void setParam(SegParams* paramInit) {
 		_param = paramInit;
 		_inDim = _param->B.W.inDim();
 		_outDim = _param->B.W.outDim();
+		_output.setParam(&_param->merge);
 	}
 
 	inline void setFunctions(Mat(*f)(const Mat&),
@@ -70,6 +78,7 @@ public:
 		for (int idx = 0; idx < _tnodes.size(); idx++){
 			_tnodes[idx].setFunctions(f, f_deri);
 		}
+		_output.setFunctions(f, f_deri);
 	}
 
 	inline void resize(int maxsize){
@@ -78,6 +87,10 @@ public:
 
 	inline void clear(){
 		_tnodes.clear();
+		_param = NULL;
+		_inDim = 0;
+		_outDim = 0;
+		_nSize = 0;
 	}
 
 public:
@@ -109,13 +122,19 @@ public:
 			_tnodes[idx].forward(x[idx]);
 		}
 
-		_output.forward(getPNodes(_tnodes, _nSize));
+		_sum.forward(getPNodes(_tnodes, _nSize));
+		_max.forward(getPNodes(_tnodes, _nSize));
+		_min.forward(getPNodes(_tnodes, _nSize));
+		_output.forward(&_sum, &_max, &_min);
 	}
 
 	inline void traverseNodes(vector<PNode> &exec){
 		for (int idx = 0; idx < _nSize; idx++){
 			exec.push_back(&_tnodes[idx]);
 		}
+		exec.push_back(&_sum);
+		exec.push_back(&_max);
+		exec.push_back(&_min);
 		exec.push_back(&_output);
 	}
 

@@ -25,7 +25,7 @@ public:
   dtype regParameter;
   dtype dropProb;
 
-  int linearHiddenSize;
+  int segHiddenSize;
   int hiddenSize;
   int rnnHiddenSize;
   int wordEmbSize;
@@ -70,9 +70,9 @@ public:
     regParameter = 1e-8;
     dropProb = 0.0;
 
-    linearHiddenSize = 30;
+    segHiddenSize = 100;
     hiddenSize = 100;
-    rnnHiddenSize = 30;
+    rnnHiddenSize = 100;
     wordEmbSize = 50;
     wordcontext = 2;
     wordEmbFineTune = true;
@@ -131,8 +131,8 @@ public:
       if (pr.first == "dropProb")
         dropProb = atof(pr.second.c_str());
 
-      if (pr.first == "linearHiddenSize")
-        linearHiddenSize = atoi(pr.second.c_str());
+      if (pr.first == "segHiddenSize")
+        segHiddenSize = atoi(pr.second.c_str());
       if (pr.first == "hiddenSize")
         hiddenSize = atoi(pr.second.c_str());
       if (pr.first == "rnnHiddenSize")
@@ -200,7 +200,7 @@ public:
     std::cout << "regParameter = " << regParameter << std::endl;
     std::cout << "dropProb = " << dropProb << std::endl;
 
-    std::cout << "linearHiddenSize = " << linearHiddenSize << std::endl;
+    std::cout << "segHiddenSize = " << segHiddenSize << std::endl;
     std::cout << "hiddenSize = " << hiddenSize << std::endl;
     std::cout << "rnnHiddenSize = " << rnnHiddenSize << std::endl;
     std::cout << "wordEmbSize = " << wordEmbSize << std::endl;
