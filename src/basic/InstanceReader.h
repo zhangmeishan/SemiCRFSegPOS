@@ -9,29 +9,30 @@ using namespace std;
 /*
  this class reads conll-format data (10 columns, no srl-info)
  */
-class InstanceReader: public Reader {
+class InstanceReader : public Reader {
 public:
-  InstanceReader() {
-  }
-  ~InstanceReader() {
-  }
+	InstanceReader() {
+	}
+	~InstanceReader() {
+	}
 
-  Instance *getNext() {
-    m_instance.clear();
-    vector<string> vecLine;
-    while (1) {
-      string strLine;
-      if (!my_getline(m_inf, strLine)) {
-        break;
-      }
-      if (strLine.empty())
-        break;
-      vecLine.push_back(strLine);
-    }
+	Instance *getNext() {
+		m_instance.clear();
+		vector<string> vecLine;
+		while (1) {
+			string strLine;
+			if (!my_getline(m_inf, strLine)) {
+				break;
+			}
+			if (strLine.empty())
+				break;
+			vecLine.push_back(strLine);
+		}
 
-    int length = vecLine.size();
+		int length = vecLine.size();
 
-    m_instance.allocate(length);
+		m_instance.allocate(length);
+		static string::size_type pos;
 
 		for (int i = 0; i < length; ++i) {
 			vector<string> vecInfo;
@@ -44,13 +45,15 @@ public:
 					m_instance.sparsefeatures[i].push_back(vecInfo[j]);
 				if (is_startwith(vecInfo[j], "[C]"))
 					m_instance.charfeatures[i].push_back(vecInfo[j]);
-				if (is_startwith(vecInfo[j], "[T"))
-					m_instance.typefeatures[i].push_back(vecInfo[j]);
+				if (is_startwith(vecInfo[j], "[T")){
+					pos = vecInfo[j].find_first_of("]");
+					m_instance.typefeatures[i].push_back(vecInfo[j].substr(pos + 1));
+				}
 			}
 		}
 
-    return &m_instance;
-  }
+		return &m_instance;
+	}
 };
 
 #endif
