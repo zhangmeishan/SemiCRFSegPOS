@@ -14,6 +14,7 @@
 #include "Metric.h"
 #include "N3L.h"
 #include "Segmentation.h"
+#include "RNNSegmentation.h"
 
 using namespace nr;
 using namespace std;
@@ -41,6 +42,11 @@ public:
 	int max_seg_length;
 	int type_num;
 
+	//dropout nodes
+	vector<vector<DropNode> > word_inputs_drop;
+	vector<DropNode> word_hidden1_drop;
+	vector<DropNode> word_hidden2_drop;
+
 	// node pointers
 public:
 	ComputionGraph() : Graph(){
@@ -56,10 +62,7 @@ public:
 		max_seg_length = maxsegLen;
 		type_num = typeNum;
 		int segNum = sent_length * max_seg_length;
-		word_inputs.resize(sent_length);
-		for (int idx = 0; idx < sent_length; idx++){
-			word_inputs[idx].resize(type_num + 1);
-		}
+		resizeVec(word_inputs, sent_length, type_num + 1);		
 		token_repsents.resize(sent_length);
 		word_window.resize(sent_length);
 		word_hidden1.resize(sent_length);
@@ -71,6 +74,10 @@ public:
 			outputseg[idx].resize(maxsegLen);
 		}
 		output.resize(segNum);
+
+		resizeVec(word_inputs_drop, sent_length, type_num + 1);
+		word_hidden1_drop.resize(sent_length);
+		word_hidden2_drop.resize(sent_length);
 	}
 
 	inline void clear(){
@@ -83,30 +90,41 @@ public:
 		right_lstm.clear();
 		word_hidden2.clear();
 		outputseg.clear();
-		output.clear();		
+		output.clear();	
+
+		clearVec(word_inputs_drop);
+		word_hidden1_drop.clear();
+		word_hidden2_drop.clear();
 	}
 
 public:
 	inline void initial(LookupTable& words, vector<LookupTable>& types, UniParams& tanh1_project, LSTMParams& left_lstm_project,
-		LSTMParams& right_lstm_project, BiParams& tanh2_project, SegParams& seglayer_project, UniParams& olayer_linear, int wordcontext){
+		LSTMParams& right_lstm_project, BiParams& tanh2_project, SegParams& seglayer_project, UniParams& olayer_linear, 
+		int wordcontext, dtype dropout){
 		for (int idx = 0; idx < word_inputs.size(); idx++) {
 			word_inputs[idx][0].setParam(&words);
 			for (int idy = 1; idy < word_inputs[idx].size(); idy++){
 				word_inputs[idx][idy].setParam(&types[idy-1]);
 			}
 
+			for (int idy = 0; idy < word_inputs[idx].size(); idy++){
+				word_inputs_drop[idx][idy].setDropValue(dropout);
+			}
+
 			word_hidden1[idx].setParam(&tanh1_project);
 			word_hidden1[idx].setFunctions(&relu, &relu_deri);
+			word_hidden1_drop[idx].setDropValue(dropout);
 
 			word_hidden2[idx].setParam(&tanh2_project);
 			word_hidden2[idx].setFunctions(&relu, &relu_deri);
+			word_hidden2_drop[idx].setDropValue(dropout);
 		}	
 		word_window.setContext(wordcontext);
-		left_lstm.setParam(&left_lstm_project, true);
-		right_lstm.setParam(&right_lstm_project, false);
+		left_lstm.setParam(&left_lstm_project, dropout, true);
+		right_lstm.setParam(&right_lstm_project, dropout, false);
 
 		for (int idx = 0; idx < output.size(); idx++){
-			outputseg[idx].setParam(&seglayer_project);
+			outputseg[idx].setParam(&seglayer_project, dropout);
 			outputseg[idx].setFunctions(&relu, &relu_deri);
 			output[idx].setParam(&olayer_linear);
 		}		
@@ -124,37 +142,38 @@ public:
 		for (int idx = 0; idx < seq_size; idx++) {
 			const Feature& feature = features[idx];
 			//input
-			word_inputs[idx][0].forward(feature.words[0]);
-			execs.push_back(&word_inputs[idx][0]);
+			word_inputs[idx][0].forward(this, feature.words[0]);
+
+			//drop out
+			word_inputs_drop[idx][0].forward(this, &word_inputs[idx][0], bTrain);
 
 			for (int idy = 1; idy < word_inputs[idx].size(); idy++){
-				word_inputs[idx][idy].forward(feature.types[idy-1]);
-				execs.push_back(&word_inputs[idx][idy]);
+				word_inputs[idx][idy].forward(this, feature.types[idy - 1]);
+				//drop out
+				word_inputs_drop[idx][idy].forward(this, &word_inputs[idx][idy], bTrain);
 			}
 
-			token_repsents[idx].forward(getPNodes(word_inputs[idx], word_inputs[idx].size()));
-			execs.push_back(&token_repsents[idx]);
+			token_repsents[idx].forward(this, getPNodes(word_inputs_drop[idx], word_inputs_drop[idx].size()));
 		}
 
 		//windowlized
-		word_window.forward(getPNodes(token_repsents, seq_size));
-		word_window.traverseNodes(execs);
+		word_window.forward(this, getPNodes(token_repsents, seq_size));
 
 		for (int idx = 0; idx < seq_size; idx++) {
 			//feed-forward
-			word_hidden1[idx].forward(&(word_window._outputs[idx]));
-			execs.push_back(&word_hidden1[idx]);
+			word_hidden1[idx].forward(this, &(word_window._outputs[idx]));
+
+			word_hidden1_drop[idx].forward(this, &word_hidden1[idx], bTrain);
 		}
 
-		left_lstm.forward(getPNodes(word_hidden1, seq_size));
-		left_lstm.traverseNodes(execs);
-		right_lstm.forward(getPNodes(word_hidden1, seq_size));
-		right_lstm.traverseNodes(execs);
+		left_lstm.forward(this, getPNodes(word_hidden1_drop, seq_size), bTrain);
+		right_lstm.forward(this, getPNodes(word_hidden1_drop, seq_size), bTrain);
 
 		for (int idx = 0; idx < seq_size; idx++) {
 			//feed-forward
-			word_hidden2[idx].forward(&(left_lstm._hiddens[idx]), &(right_lstm._hiddens[idx]));
-			execs.push_back(&word_hidden2[idx]);
+			word_hidden2[idx].forward(this, &(left_lstm._hiddens_drop[idx]), &(right_lstm._hiddens_drop[idx]));
+
+			word_hidden2_drop[idx].forward(this, &word_hidden2[idx], bTrain);
 		}
 
 		static int offset;
@@ -163,9 +182,8 @@ public:
 			offset = idx * max_seg_length;
 			segnodes.clear();
 			for (int dist = 0; idx + dist < seq_size && dist < max_seg_length; dist++) {
-				segnodes.push_back(&word_hidden2[idx + dist]);
-				outputseg[offset + dist].forward(segnodes);
-				outputseg[offset + dist].traverseNodes(execs);
+				segnodes.push_back(&word_hidden2_drop[idx + dist]);
+				outputseg[offset + dist].forward(this, segnodes, bTrain);
 			}
 		}
 		
@@ -175,8 +193,7 @@ public:
 		for (int idx = 0; idx < seq_size; idx++) {
 			offset = idx * max_seg_length;
 			for (int dist = 0; idx + dist < seq_size && dist < max_seg_length; dist++) {
-				output[offset + dist].forward(&(outputseg[offset + dist]._output));
-				execs.push_back(&output[offset + dist]);
+				output[offset + dist].forward(this, &(outputseg[offset + dist]._output_drop));
 				poutput[idx][dist] = &output[offset + dist];
 			}
 		}
@@ -289,7 +306,7 @@ public:
 
 		_pcg = new ComputionGraph();
 		_pcg->createNodes(ComputionGraph::max_sentence_length, _loss.maxLen, _types.size());
-		_pcg->initial(_words, _types, _tanh1_project, _left_lstm_project, _right_lstm_project, _tanh2_project, _seglayer_project, _olayer_linear, _wordcontext);
+		_pcg->initial(_words, _types, _tanh1_project, _left_lstm_project, _right_lstm_project, _tanh2_project, _seglayer_project, _olayer_linear, _wordcontext, _dropOut);
 
 		//check grad
 		_checkgrad.add(&(_words.E), "_words.E");
@@ -399,7 +416,7 @@ public:
 	}
 
 	inline dtype cost(const Example& example){
-		_pcg->forward(example.m_features); //forward here
+		_pcg->forward(example.m_features, true); //forward here
 
 		int seq_size = example.m_features.size();
 
@@ -415,7 +432,8 @@ public:
 
 
 	void updateModel() {
-		_ada.update();
+		//_ada.update();
+		_ada.update(5.0);
 	}
 
 	void checkgrad(const vector<Example>& examples, int iter){

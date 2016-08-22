@@ -310,9 +310,9 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 	}
 
 	// use rnnHiddenSize to replace segHiddensize
-	m_classifier.init(m_options.wordcontext, m_options.charcontext, m_options.hiddenSize, m_options.rnnHiddenSize, m_options.hiddenSize, m_options.segHiddenSize, m_seglabelAlphabet.size());
-
 	m_classifier.setDropValue(m_options.dropProb);
+	m_classifier.init(m_options.wordcontext, m_options.charcontext, m_options.hiddenSize, m_options.rnnHiddenSize, m_options.hiddenSize, m_options.segHiddenSize, m_seglabelAlphabet.size());
+	
 	m_classifier.setUpdateParameters(m_options.regParameter, m_options.adaAlpha, m_options.adaEps);
 
 

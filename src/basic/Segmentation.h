@@ -56,6 +56,8 @@ public:
 	MaxPoolNode _max;
 	MinPoolNode _min;
 	vector<UniNode> _tnodes;
+	vector<DropNode> _tnodes_drop;
+	DropNode _output_drop;
 
 public:
 	SegBuilder(){
@@ -66,11 +68,16 @@ public:
 		clear();
 	}
 
-	inline void setParam(SegParams* paramInit) {
+	inline void setParam(SegParams* paramInit, dtype dropout) {
 		_param = paramInit;
 		_inDim = _param->B.W.inDim();
 		_outDim = _param->B.W.outDim();
 		_output.setParam(&_param->merge);
+
+		for (int idx = 0; idx < _tnodes.size(); idx++){
+			_tnodes_drop[idx].setDropValue(dropout);
+		}
+		_output_drop.setDropValue(dropout);
 	}
 
 	inline void setFunctions(Mat(*f)(const Mat&),
@@ -83,10 +90,12 @@ public:
 
 	inline void resize(int maxsize){
 		_tnodes.resize(maxsize);
+		_tnodes_drop.resize(maxsize);
 	}
 
 	inline void clear(){
 		_tnodes.clear();
+		_tnodes_drop.clear();
 		_param = NULL;
 		_inDim = 0;
 		_outDim = 0;
@@ -95,7 +104,7 @@ public:
 
 public:
 
-	inline void forward(const vector<PNode>& x){
+	inline void forward(Graph *cg, const vector<PNode>& x, bool bTrain){
 		if (x.size() == 0){
 			std::cout << "empty inputs for seg operation" << std::endl;
 			return;
@@ -119,23 +128,15 @@ public:
 		}
 
 		for (int idx = 0; idx < _nSize; idx++){
-			_tnodes[idx].forward(x[idx]);
+			_tnodes[idx].forward(cg, x[idx]);
+			_tnodes_drop[idx].forward(cg, &_tnodes[idx], bTrain);
 		}
 
-		_sum.forward(getPNodes(_tnodes, _nSize));
-		_max.forward(getPNodes(_tnodes, _nSize));
-		_min.forward(getPNodes(_tnodes, _nSize));
-		_output.forward(&_sum, &_max, &_min);
-	}
-
-	inline void traverseNodes(vector<PNode> &exec){
-		for (int idx = 0; idx < _nSize; idx++){
-			exec.push_back(&_tnodes[idx]);
-		}
-		exec.push_back(&_sum);
-		exec.push_back(&_max);
-		exec.push_back(&_min);
-		exec.push_back(&_output);
+		_sum.forward(cg, getPNodes(_tnodes_drop, _nSize));
+		_max.forward(cg, getPNodes(_tnodes_drop, _nSize));
+		_min.forward(cg, getPNodes(_tnodes_drop, _nSize));
+		_output.forward(cg, &_sum, &_max, &_min);
+		_output_drop.forward(cg, &_output, bTrain);
 	}
 
 };

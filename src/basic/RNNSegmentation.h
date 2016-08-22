@@ -14,7 +14,7 @@
 #include "Pooling.h"
 #include "UniOP.h"
 
-struct SegParams {
+struct RNNSegParams {
 	LSTMParams L;
 	LSTMParams R;
 	BiParams LR;
@@ -22,7 +22,7 @@ struct SegParams {
 	int outDim;
 	int hiddenDim;
 
-	SegParams() {
+	RNNSegParams() {
 	}
 
 	inline void exportAdaParams(ModelUpdate& ada) {
@@ -42,9 +42,9 @@ struct SegParams {
 };
 
 // we can rewrite it as one node, but many duplicated codes
-class SegBuilder : NodeBuilder{
+class RNNSegBuilder : NodeBuilder{
 public:
-	SegParams* _param;
+	RNNSegParams* _param;
 
 	int _nSize;
 	int _inDim;
@@ -57,15 +57,15 @@ public:
 
 
 public:
-	SegBuilder(){
+	RNNSegBuilder(){
 		clear();
 	}
 
-	~SegBuilder(){
+	~RNNSegBuilder(){
 		clear();
 	}
 
-	inline void setParam(SegParams* paramInit) {
+	inline void setParam(RNNSegParams* paramInit) {
 		if (_right_lstm.empty()){
 			std::cout << "please call resize() function first" << std::endl;
 		}
@@ -102,7 +102,7 @@ public:
 
 public:
 
-	inline void forward(const vector<PNode>& x){
+	inline void forward(Graph *cg, const vector<PNode>& x, bool bTrain){
 		if (x.size() == 0){
 			std::cout << "empty inputs for seg operation" << std::endl;
 			return;
@@ -114,15 +114,9 @@ public:
 			return;
 		}
 
-		_left_lstm.forward(x);
-		_right_lstm.forward(x);
-		_output.forward(&_left_lstm._hiddens[_nSize - 1], &_right_lstm._hiddens[0]);
-	}
-
-	inline void traverseNodes(vector<PNode> &exec){
-		_left_lstm.traverseNodes(exec);
-		_right_lstm.traverseNodes(exec);
-		exec.push_back(&_output);
+		_left_lstm.forward(cg, x, bTrain);
+		_right_lstm.forward(cg, x, bTrain);
+		_output.forward(cg, &_left_lstm._hiddens[_nSize - 1], &_right_lstm._hiddens[0]);
 	}
 
 };
