@@ -14,15 +14,15 @@
 #include "Pooling.h"
 #include "UniOP.h"
 
-struct RNNSegParams {
-	LSTMParams L;
-	LSTMParams R;
+struct SegParams {
+	LSTM1Params L;
+	LSTM1Params R;
 	BiParams LR;
 	int inDim;
 	int outDim;
 	int hiddenDim;
 
-	RNNSegParams() {
+	SegParams() {
 	}
 
 	inline void exportAdaParams(ModelUpdate& ada) {
@@ -42,30 +42,31 @@ struct RNNSegParams {
 };
 
 // we can rewrite it as one node, but many duplicated codes
-class RNNSegBuilder : NodeBuilder{
+class SegBuilder : NodeBuilder{
 public:
-	RNNSegParams* _param;
+	SegParams* _param;
 
 	int _nSize;
 	int _inDim;
 	int _outDim;
 	int _hiddenDim;
 
-	LSTMBuilder _left_lstm;
-	LSTMBuilder _right_lstm;
+	LSTM1Builder _left_lstm;
+	LSTM1Builder _right_lstm;
 	BiNode _output;
+	DropNode _output_drop;
 
 
 public:
-	RNNSegBuilder(){
+	SegBuilder(){
 		clear();
 	}
 
-	~RNNSegBuilder(){
+	~SegBuilder(){
 		clear();
 	}
 
-	inline void setParam(RNNSegParams* paramInit) {
+	inline void setParam(SegParams* paramInit, dtype dropout) {
 		if (_right_lstm.empty()){
 			std::cout << "please call resize() function first" << std::endl;
 		}
@@ -75,8 +76,9 @@ public:
 		_hiddenDim = _param->hiddenDim;
 
 		_output.setParam(&_param->LR);
-		_left_lstm.setParam(&_param->L, true);
-		_right_lstm.setParam(&_param->L, false);
+		_left_lstm.setParam(&_param->L, dropout, true);
+		_right_lstm.setParam(&_param->R, dropout, false);
+		_output_drop.setDropValue(dropout);
 	}
 
 	inline void setFunctions(Mat(*f)(const Mat&),
@@ -116,7 +118,8 @@ public:
 
 		_left_lstm.forward(cg, x, bTrain);
 		_right_lstm.forward(cg, x, bTrain);
-		_output.forward(cg, &_left_lstm._hiddens[_nSize - 1], &_right_lstm._hiddens[0]);
+		_output.forward(cg, &_left_lstm._hiddens_drop[_nSize - 1], &_right_lstm._hiddens_drop[0]);
+		_output_drop.forward(cg, &_output, bTrain);
 	}
 
 };

@@ -19,6 +19,9 @@ public:
 
 	  for (int i = 0; i < labels.size(); ++i) {
 	    m_outf << pInstance->words[i] << " ";
+		if (pInstance->useAddition){
+			m_outf << pInstance->additionlabels[i] << " ";
+		}
 	    m_outf << labels[i] << endl;
 	  }
 	  m_outf << endl;

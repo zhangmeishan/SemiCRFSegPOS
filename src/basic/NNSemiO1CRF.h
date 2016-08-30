@@ -1,20 +1,19 @@
 /*
- * TNNClassifier.h
+ * NNSemiO1CRF.h
  *
  *  Created on: Mar 18, 2015
  *      Author: mszhang
  */
 
-#ifndef SRC_TNNClassifier_H_
-#define SRC_TNNClassifier_H_
+#ifndef SRC_NNSemiO1CRF_H_
+#define SRC_NNSemiO1CRF_H_
 
 #include <iostream>
 
 #include "Example.h"
 #include "Metric.h"
 #include "N3L.h"
-#include "Segmentation.h"
-#include "RNNSegmentation.h"
+#include "BMESSegmentation.h"
 
 using namespace nr;
 using namespace std;
@@ -31,8 +30,8 @@ public:
 	WindowBuilder word_window;
 	vector<UniNode> word_hidden1;
 
-	LSTMBuilder left_lstm;
-	LSTMBuilder right_lstm;
+	LSTM1Builder left_lstm;
+	LSTM1Builder right_lstm;
 
 	vector<BiNode> word_hidden2;
 	vector<SegBuilder> outputseg;
@@ -98,8 +97,8 @@ public:
 	}
 
 public:
-	inline void initial(LookupTable& words, vector<LookupTable>& types, UniParams& tanh1_project, LSTMParams& left_lstm_project,
-		LSTMParams& right_lstm_project, BiParams& tanh2_project, SegParams& seglayer_project, UniParams& olayer_linear, 
+	inline void initial(LookupTable& words, vector<LookupTable>& types, UniParams& tanh1_project, LSTM1Params& left_lstm_project,
+		LSTM1Params& right_lstm_project, BiParams& tanh2_project, SegParams& seglayer_project, UniParams& olayer_linear, 
 		int wordcontext, dtype dropout){
 		for (int idx = 0; idx < word_inputs.size(); idx++) {
 			word_inputs[idx][0].setParam(&words);
@@ -112,11 +111,11 @@ public:
 			}
 
 			word_hidden1[idx].setParam(&tanh1_project);
-			word_hidden1[idx].setFunctions(&relu, &relu_deri);
+			word_hidden1[idx].setFunctions(&tanh, &tanh_deri);
 			word_hidden1_drop[idx].setDropValue(dropout);
 
 			word_hidden2[idx].setParam(&tanh2_project);
-			word_hidden2[idx].setFunctions(&relu, &relu_deri);
+			word_hidden2[idx].setFunctions(&tanh, &tanh_deri);
 			word_hidden2_drop[idx].setDropValue(dropout);
 		}	
 		word_window.setContext(wordcontext);
@@ -125,7 +124,7 @@ public:
 
 		for (int idx = 0; idx < output.size(); idx++){
 			outputseg[idx].setParam(&seglayer_project, dropout);
-			outputseg[idx].setFunctions(&relu, &relu_deri);
+			outputseg[idx].setFunctions(&tanh, &tanh_deri);
 			output[idx].setParam(&olayer_linear);
 		}		
 	}
@@ -203,15 +202,15 @@ public:
 
 //A native neural network classfier using only word embeddings
 
-class TNNClassifier {
+class NNSemiO1CRF {
 public:
-	TNNClassifier() {
+	NNSemiO1CRF() {
 		_dropOut = 0.0;
 		_pcg = NULL;
 		_types.clear();
 	}
 
-	~TNNClassifier() {
+	~NNSemiO1CRF() {
 		if (_pcg != NULL)
 			delete _pcg;
 		_pcg = NULL;
@@ -232,8 +231,8 @@ public:
 	int _hiddensize2;
 	int _seghiddensize;
 	int _inputsize;
-	LSTMParams _left_lstm_project; //left lstm
-	LSTMParams _right_lstm_project; //right lstm
+	LSTM1Params _left_lstm_project; //left lstm
+	LSTM1Params _right_lstm_project; //right lstm
 	UniParams _tanh1_project; // hidden
 	BiParams _tanh2_project; // hidden
 	SegParams _seglayer_project; //segmentation
@@ -241,7 +240,7 @@ public:
 	
 
 	//SoftMaxLoss _loss;
-	Semi0CRFMLLoss _loss;
+	SemiCRFMLLoss _loss;
 
 	int _labelSize;
 
@@ -258,7 +257,7 @@ public:
 public:
 	//embeddings are initialized before this separately.
 	inline void init(int wordcontext, int charcontext, int hiddensize1, int rnnhiddensize, int hiddensize2, int seghiddensize, int labelSize) {
-		if (_words.nVSize == 0 && _loss.labelSize > 0 && _loss.maxLen > 0){
+		if (_words.nVSize <= 0 || _loss.labelSize <= 0 || _loss.maxLen <= 0){
 			std::cout << "Please initialize embeddings before this" << std::endl;
 			return;
 		}
@@ -285,7 +284,7 @@ public:
 		_left_lstm_project.initial(rnnhiddensize, _hiddensize1, 200);
 		_right_lstm_project.initial(rnnhiddensize, _hiddensize1, 300);
 		_tanh2_project.initial(_hiddensize1, rnnhiddensize, rnnhiddensize, true, 400);
-		_seglayer_project.initial(_seghiddensize, _hiddensize2, 500);
+		_seglayer_project.initial(_seghiddensize, _hiddensize2, _hiddensize1, 500);
 		_olayer_linear.initial(_labelSize, _seghiddensize, false, 600);
 
 		assert(_loss.labelSize == _labelSize);
@@ -301,7 +300,7 @@ public:
 		_tanh2_project.exportAdaParams(_ada);
 		_seglayer_project.exportAdaParams(_ada);
 		_olayer_linear.exportAdaParams(_ada);
-		//_loss.exportAdaParams(_ada);
+		_loss.exportAdaParams(_ada);
 
 
 		_pcg = new ComputionGraph();
@@ -318,51 +317,10 @@ public:
 		_checkgrad.add(&(_tanh1_project.W), "_tanh1_project.W");
 		_checkgrad.add(&(_tanh1_project.b), "_tanh1_project.b");
 
-		_checkgrad.add(&(_left_lstm_project.input.W1), "_left_lstm_project.input.W1");
-		_checkgrad.add(&(_left_lstm_project.input.W2), "_left_lstm_project.input.W2");
-		_checkgrad.add(&(_left_lstm_project.input.W3), "_left_lstm_project.input.W3");
-		_checkgrad.add(&(_left_lstm_project.input.b), "_left_lstm_project.input.b");
-		_checkgrad.add(&(_left_lstm_project.forget.W1), "_left_lstm_project.forget.W1");
-		_checkgrad.add(&(_left_lstm_project.forget.W2), "_left_lstm_project.forget.W2");
-		_checkgrad.add(&(_left_lstm_project.forget.W3), "_left_lstm_project.forget.W3");
-		_checkgrad.add(&(_left_lstm_project.forget.b), "_left_lstm_project.forget.b");
-		_checkgrad.add(&(_left_lstm_project.output.W1), "_left_lstm_project.output.W1");
-		_checkgrad.add(&(_left_lstm_project.output.W2), "_left_lstm_project.output.W2");
-		_checkgrad.add(&(_left_lstm_project.output.W3), "_left_lstm_project.output.W3");
-		_checkgrad.add(&(_left_lstm_project.output.b), "_left_lstm_project.output.b");
-		_checkgrad.add(&(_left_lstm_project.cell.W1), "_left_lstm_project.cell.W1");
-		_checkgrad.add(&(_left_lstm_project.cell.W2), "_left_lstm_project.cell.W2");
-		_checkgrad.add(&(_left_lstm_project.cell.b), "_left_lstm_project.cell.b");
-
-		_checkgrad.add(&(_right_lstm_project.input.W1), "_right_lstm_project.input.W1");
-		_checkgrad.add(&(_right_lstm_project.input.W2), "_right_lstm_project.input.W2");
-		_checkgrad.add(&(_right_lstm_project.input.W3), "_right_lstm_project.input.W3");
-		_checkgrad.add(&(_right_lstm_project.input.b), "_right_lstm_project.input.b");
-		_checkgrad.add(&(_right_lstm_project.forget.W1), "_right_lstm_project.forget.W1");
-		_checkgrad.add(&(_right_lstm_project.forget.W2), "_right_lstm_project.forget.W2");
-		_checkgrad.add(&(_right_lstm_project.forget.W3), "_right_lstm_project.forget.W3");
-		_checkgrad.add(&(_right_lstm_project.forget.b), "_right_lstm_project.forget.b");
-		_checkgrad.add(&(_right_lstm_project.output.W1), "_right_lstm_project.output.W1");
-		_checkgrad.add(&(_right_lstm_project.output.W2), "_right_lstm_project.output.W2");
-		_checkgrad.add(&(_right_lstm_project.output.W3), "_right_lstm_project.output.W3");
-		_checkgrad.add(&(_right_lstm_project.output.b), "_right_lstm_project.output.b");
-		_checkgrad.add(&(_right_lstm_project.cell.W1), "_right_lstm_project.cell.W1");
-		_checkgrad.add(&(_right_lstm_project.cell.W2), "_right_lstm_project.cell.W2");
-		_checkgrad.add(&(_right_lstm_project.cell.b), "_right_lstm_project.cell.b");
 
 		_checkgrad.add(&(_tanh2_project.W1), "_tanh2_project.W1");
 		_checkgrad.add(&(_tanh2_project.W2), "_tanh2_project.W2");
 		_checkgrad.add(&(_tanh2_project.b), "_tanh2_project.b");
-
-		_checkgrad.add(&(_seglayer_project.B.W), "_seglayer_project.B.W");
-		_checkgrad.add(&(_seglayer_project.B.b), "_seglayer_project.B.b");
-		_checkgrad.add(&(_seglayer_project.M.W), "_seglayer_project.M.W");
-		_checkgrad.add(&(_seglayer_project.B.b), "_seglayer_project.M.b");
-		_checkgrad.add(&(_seglayer_project.E.W), "_seglayer_project.E.W");
-		_checkgrad.add(&(_seglayer_project.B.b), "_seglayer_project.E.b");
-		_checkgrad.add(&(_seglayer_project.S.W), "_seglayer_project.S.W");
-		_checkgrad.add(&(_seglayer_project.B.b), "_seglayer_project.S.b");
-
 
 		_checkgrad.add(&(_olayer_linear.W), "_olayer_linear.W");
 		//_checkgrad.add(&(_loss.T), "_loss.T");
@@ -465,4 +423,4 @@ public:
 
 };
 
-#endif /* SRC_TNNClassifier_H_ */
+#endif /* SRC_NNSemiO1CRF_H_ */

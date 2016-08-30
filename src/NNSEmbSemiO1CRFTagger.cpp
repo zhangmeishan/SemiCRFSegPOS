@@ -1,23 +1,23 @@
 /*
- * Labeler.cpp
+ * Tagger.cpp
  *
  *  Created on: Mar 16, 2015
  *      Author: mszhang
  */
 
-#include "TNNLabeler.h"
+#include "NNSEmbSemiO1CRFTagger.h"
 
 #include "Argument_helper.h"
 
-Labeler::Labeler() {
+Tagger::Tagger() {
 	// TODO Auto-generated constructor stub
 }
 
-Labeler::~Labeler() {
+Tagger::~Tagger() {
 	// TODO Auto-generated destructor stub
 }
 
-int Labeler::createAlphabet(const vector<Instance>& vecInsts) {
+int Tagger::createAlphabet(const vector<Instance>& vecInsts) {
 	if (vecInsts.size() == 0){
 		std::cout << "training set empty" << std::endl;
 		return -1;
@@ -90,7 +90,7 @@ int Labeler::createAlphabet(const vector<Instance>& vecInsts) {
 	return 0;
 }
 
-int Labeler::addTestAlpha(const vector<Instance>& vecInsts) {
+int Tagger::addTestAlpha(const vector<Instance>& vecInsts) {
 	cout << "Adding word Alphabet..." << endl;
 
 
@@ -134,7 +134,7 @@ int Labeler::addTestAlpha(const vector<Instance>& vecInsts) {
 }
 
 
-void Labeler::extractFeature(Feature& feat, const Instance* pInstance, int idx) {
+void Tagger::extractFeature(Feature& feat, const Instance* pInstance, int idx) {
 	feat.clear();
 
 	const vector<string>& words = pInstance->words;
@@ -143,6 +143,18 @@ void Labeler::extractFeature(Feature& feat, const Instance* pInstance, int idx) 
 
 	// word features
 	feat.words.push_back(curWord);
+	
+	// seg features
+	string curSeg = "";
+	for(int j = 0; j < m_options.maxsegLen; j++){
+		if(idx+j < sentsize){
+			curSeg = curSeg + words[idx+j];
+		}
+		else{
+			curSeg = nullkey;
+		}
+		feat.segs.push_back(curSeg);
+	}	
 
 	// char features
 
@@ -167,7 +179,7 @@ void Labeler::extractFeature(Feature& feat, const Instance* pInstance, int idx) 
 
 }
 
-void Labeler::convert2Example(const Instance* pInstance, Example& exam, bool bTrain) {
+void Tagger::convert2Example(const Instance* pInstance, Example& exam, bool bTrain) {
 	exam.clear();
 	const vector<string> &labels = pInstance->labels;
 	int curInstSize = labels.size();
@@ -216,7 +228,7 @@ void Labeler::convert2Example(const Instance* pInstance, Example& exam, bool bTr
 	}
 }
 
-void Labeler::initialExamples(const vector<Instance>& vecInsts, vector<Example>& vecExams, bool bTrain) {
+void Tagger::initialExamples(const vector<Instance>& vecInsts, vector<Example>& vecExams, bool bTrain) {
 	int numInstance;
 	for (numInstance = 0; numInstance < vecInsts.size(); numInstance++) {
 		const Instance *pInstance = &vecInsts[numInstance];
@@ -237,7 +249,7 @@ void Labeler::initialExamples(const vector<Instance>& vecInsts, vector<Example>&
 	cout << numInstance << " " << endl;
 }
 
-void Labeler::train(const string& trainFile, const string& devFile, const string& testFile, const string& modelFile, const string& optionFile) {
+void Tagger::train(const string& trainFile, const string& devFile, const string& testFile, const string& modelFile, const string& optionFile) {
 	if (optionFile != "")
 		m_options.load(optionFile);
 	m_options.showOptions();
@@ -269,7 +281,7 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 		addTestAlpha(otherInsts[idx]);
 	}
 
-	vector<Example> trainExamples, devExamples, testExamples;
+	vector<Example> trainExamples, devExamples, testExamples, allExamples;
 	maxLabelLength.resize(m_seglabelAlphabet.size());
 	assignVec(maxLabelLength, 0);
 	initialExamples(trainInsts, trainExamples, true);
@@ -278,15 +290,20 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 	for (int j = 0; j < m_seglabelAlphabet.size(); j++){
 		std::cout << "max length of label " << m_seglabelAlphabet.from_id(j) << ": " << maxLabelLength[j] << std::endl;
 	}
-	m_classifier._loss.initial(maxLabelLength, m_options.maxsegLen);
+	m_classifier._loss.initial(maxLabelLength, m_options.maxsegLen, 10000);
 	initialExamples(devInsts, devExamples);
 	initialExamples(testInsts, testExamples);
+
+	addAllItems(allExamples, trainExamples);
+	addAllItems(allExamples, devExamples);
+	addAllItems(allExamples, testExamples);
 
 	vector<int> otherInstNums(otherInsts.size());
 	vector<vector<Example> > otherExamples(otherInsts.size());
 	for (int idx = 0; idx < otherInsts.size(); idx++) {
 		initialExamples(otherInsts[idx], otherExamples[idx]);
 		otherInstNums[idx] = otherExamples[idx].size();
+		addAllItems(allExamples, otherExamples[idx]);
 	}
 
 	m_word_stats[unknownkey] = m_options.wordCutOff + 1;
@@ -309,6 +326,8 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 		}
 	}
 
+	collectSEGAlpha(allExamples, m_options.segFile);
+
 	// use rnnHiddenSize to replace segHiddensize
 	m_classifier.setDropValue(m_options.dropProb);
 	m_classifier.init(m_options.wordcontext, m_options.charcontext, m_options.hiddenSize, m_options.rnnHiddenSize, m_options.hiddenSize, m_options.segHiddenSize, m_seglabelAlphabet.size());
@@ -329,7 +348,7 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 	for (int i = 0; i < inputSize; ++i)
 		indexes.push_back(i);
 
-	static Metric eval, metric_dev, metric_test;
+	static Metric eval, metric_dev, metric_test, metric_dev2, metric_test2;
 	static vector<Example> subExamples;
 	int devNum = devExamples.size(), testNum = testExamples.size();
 	for (int iter = 0; iter < m_options.maxIter; ++iter) {
@@ -368,12 +387,15 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 			if (!m_options.outBest.empty())
 				decodeInstResults.clear();
 			metric_dev.reset();
+			metric_dev2.reset();
 			for (int idx = 0; idx < devExamples.size(); idx++) {
 				vector<string> result_labels;
 				predict(devExamples[idx].m_features, result_labels);
 
-				if (m_options.seg)
+				if (m_options.seg){
 					devInsts[idx].SegEvaluate(result_labels, metric_dev);
+					devInsts[idx].SegUnlabelEvaluate(result_labels, metric_dev2);
+				}
 				else
 					devInsts[idx].Evaluate(result_labels, metric_dev);
 
@@ -383,8 +405,9 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 					decodeInstResults.push_back(curDecodeInst);
 				}
 			}
-
+			std::cout << "dev:" << std::endl;
 			metric_dev.print();
+			metric_dev2.print();
 
 			if (!m_options.outBest.empty() && metric_dev.getAccuracy() > bestDIS) {
 				m_pipe.outputAllInstances(devFile + m_options.outBest, decodeInstResults);
@@ -395,12 +418,15 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 				if (!m_options.outBest.empty())
 					decodeInstResults.clear();
 				metric_test.reset();
+				metric_test2.reset();
 				for (int idx = 0; idx < testExamples.size(); idx++) {
 					vector<string> result_labels;
 					predict(testExamples[idx].m_features, result_labels);
 
-					if (m_options.seg)
+					if (m_options.seg){
 						testInsts[idx].SegEvaluate(result_labels, metric_test);
+						testInsts[idx].SegUnlabelEvaluate(result_labels, metric_test2);
+					}
 					else
 						testInsts[idx].Evaluate(result_labels, metric_test);
 
@@ -412,6 +438,7 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 				}
 				std::cout << "test:" << std::endl;
 				metric_test.print();
+				metric_test2.print();
 
 				if (!m_options.outBest.empty() && bCurIterBetter) {
 					m_pipe.outputAllInstances(testFile + m_options.outBest, decodeInstResults);
@@ -423,12 +450,15 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 				if (!m_options.outBest.empty())
 					decodeInstResults.clear();
 				metric_test.reset();
+				metric_test2.reset();
 				for (int idy = 0; idy < otherExamples[idx].size(); idy++) {
 					vector<string> result_labels;
 					predict(otherExamples[idx][idy].m_features, result_labels);
 
-					if (m_options.seg)
+					if (m_options.seg){
 						otherInsts[idx][idy].SegEvaluate(result_labels, metric_test);
+						otherInsts[idx][idy].SegUnlabelEvaluate(result_labels, metric_test2);
+					}
 					else
 						otherInsts[idx][idy].Evaluate(result_labels, metric_test);
 
@@ -440,6 +470,7 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 				}
 				std::cout << "test:" << std::endl;
 				metric_test.print();
+				metric_test2.print();
 
 				if (!m_options.outBest.empty() && bCurIterBetter) {
 					m_pipe.outputAllInstances(m_options.testFiles[idx] + m_options.outBest, decodeInstResults);
@@ -457,7 +488,7 @@ void Labeler::train(const string& trainFile, const string& devFile, const string
 	}
 }
 
-int Labeler::predict(const vector<Feature>& features, vector<string>& outputs) {
+int Tagger::predict(const vector<Feature>& features, vector<string>& outputs) {
 	//assert(features.size() == words.size());
 	NRMat<int> labelIdx;
 	m_classifier.predict(features, labelIdx);
@@ -481,9 +512,15 @@ int Labeler::predict(const vector<Feature>& features, vector<string>& outputs) {
 				}
 			}
 			else{
-				outputs[idx] = "b-" + label;
-				for (int i = idx + 1; i <= idx + dist; i++){
-					outputs[i] = "i-" + label;
+				if (dist == 0){
+					outputs[idx] = "s-" + label;
+				}
+				else{
+					outputs[idx] = "b-" + label;
+					for (int i = idx + 1; i < idx + dist; i++){
+						outputs[i] = "m-" + label;
+					}
+					outputs[idx + dist] = "e-" + label;
 				}
 			}			
 		}
@@ -498,7 +535,7 @@ int Labeler::predict(const vector<Feature>& features, vector<string>& outputs) {
 	return 0;
 }
 
-void Labeler::test(const string& testFile, const string& outputFile, const string& modelFile) {
+void Tagger::test(const string& testFile, const string& outputFile, const string& modelFile) {
 	loadModelFile(modelFile);
 	vector<Instance> testInsts;
 	m_pipe.readInstances(testFile, testInsts);
@@ -508,29 +545,77 @@ void Labeler::test(const string& testFile, const string& outputFile, const strin
 
 	int testNum = testExamples.size();
 	vector<Instance> testInstResults;
-	Metric metric_test;
+	Metric metric_test, metric_test2;
 	metric_test.reset();
+	metric_test2.reset();
 	for (int idx = 0; idx < testExamples.size(); idx++) {
 		vector<string> result_labels;
 		predict(testExamples[idx].m_features, result_labels);
-		testInsts[idx].SegEvaluate(result_labels, metric_test);
+		if (m_options.seg){
+			testInsts[idx].SegEvaluate(result_labels, metric_test);
+			testInsts[idx].SegUnlabelEvaluate(result_labels, metric_test2);
+		}
+		else
+			testInsts[idx].Evaluate(result_labels, metric_test);		
 		Instance curResultInst;
 		curResultInst.copyValuesFrom(testInsts[idx]);
+		curResultInst.assignLabel(result_labels);
 		testInstResults.push_back(curResultInst);
 	}
 	std::cout << "test:" << std::endl;
 	metric_test.print();
+	metric_test2.print();
 
 	m_pipe.outputAllInstances(outputFile, testInstResults);
 
 }
 
+void Tagger::collectSEGAlpha(const vector<Example>& vecInsts, const string& segFile){
+	hash_map<string, int> seg_stats;
+	for (int idx = 0; idx < vecInsts.size(); idx++){
+		for (int idy = 0; idy < vecInsts[idx].m_features.size(); idy++){
+			const vector<string>& segs = vecInsts[idx].m_features[idy].segs;
+			for (int idz = 0; idz < segs.size(); idz++){
+				seg_stats[segs[idz]]++;
+			}
+		}
+	}
+	
+	static ifstream inf;
+	if (inf.is_open()) {
+		inf.close();
+		inf.clear();
+	}
+	inf.open(segFile.c_str());
 
-void Labeler::loadModelFile(const string& inputModelFile) {
+	static string strLine;
+	static vector<string> vecInfo;
+	while (1) {
+		if (!my_getline(inf, strLine)) {
+			break;
+		}
+		if (strLine.empty()){
+			continue;
+		}
+		split_bychar(strLine, vecInfo, ' ');
+		if (seg_stats.find(vecInfo[0]) != seg_stats.end()){
+			m_seg_stats[vecInfo[0]]++;
+		}
+	}
+	inf.close();
+
+	std::cout << "all possible segs: " << seg_stats.size() << ", hited segs: " << m_seg_stats.size() 
+		<< ", OOV ratio = " << (seg_stats.size() - m_seg_stats.size()) * 1.0 / seg_stats.size() << std::endl;
+
+	m_classifier._segs.initial(m_seg_stats, 0, segFile, false);
+}
+
+
+void Tagger::loadModelFile(const string& inputModelFile) {
 
 }
 
-void Labeler::writeModelFile(const string& outputModelFile) {
+void Tagger::writeModelFile(const string& outputModelFile) {
 
 }
 
@@ -552,13 +637,13 @@ int main(int argc, char* argv[]) {
 
 	ah.process(argc, argv);
 
-	Labeler tagger;
-	tagger.m_pipe.max_sentense_size = ComputionGraph::max_sentence_length;
+	Tagger segmentor;
+	segmentor.m_pipe.max_sentense_size = ComputionGraph::max_sentence_length;
 	if (bTrain) {
-		tagger.train(trainFile, devFile, testFile, modelFile, optionFile);
+		segmentor.train(trainFile, devFile, testFile, modelFile, optionFile);
 	}
 	else {
-		tagger.test(testFile, outputFile, modelFile);
+		segmentor.test(testFile, outputFile, modelFile);
 	}
 
 	//test(argv);

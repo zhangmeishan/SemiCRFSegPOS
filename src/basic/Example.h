@@ -16,6 +16,7 @@ public:
 	vector<string> words;
 	vector<string> types;
 	vector<string> chars;
+	vector<string> segs;
 	vector<string> linear_features;
 public:
 	Feature() {
@@ -29,6 +30,7 @@ public:
 		words.clear();
 		chars.clear();
 		types.clear();
+		segs.clear();
 		linear_features.clear();
 	}
 };

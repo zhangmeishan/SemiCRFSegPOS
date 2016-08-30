@@ -1,16 +1,16 @@
 /*
- * Labeler.h
+ * Tagger.h
  *
  *  Created on: Mar 16, 2015
  *      Author: mszhang
  */
 
-#ifndef SRC_NNCRF_H_
-#define SRC_NNCRF_H_
+#ifndef SRC_NNSEmbSemiO1CRFTagger_H_
+#define SRC_NNSEmbSemiO1CRFTagger_H_
 
 
 #include "N3L.h"
-#include "TNNClassifier.h"
+#include "NNSEmbSemiO1CRF.h"
 #include "Options.h"
 #include "Instance.h"
 #include "Example.h"
@@ -22,7 +22,7 @@
 using namespace nr;
 using namespace std;
 
-class Labeler {
+class Tagger {
 
 
 public:
@@ -34,23 +34,25 @@ public:
 	hash_map<string, int> m_word_stats;
 	hash_map<string, int> m_char_stats;
 	vector<hash_map<string, int> > m_type_stats;
+	hash_map<string, int> m_seg_stats; // read it by file
 
 public:
 	Options m_options;
 
 	Pipe m_pipe;
 
-	TNNClassifier m_classifier;
+	NNSEmbSemiO1CRF m_classifier;
 
 
 public:
-	Labeler();
-	virtual ~Labeler();
+	Tagger();
+	virtual ~Tagger();
 
 public:
 
 	int createAlphabet(const vector<Instance>& vecTrainInsts);
 	int addTestAlpha(const vector<Instance>& vecInsts);
+	void collectSEGAlpha(const vector<Example>& vecInsts, const string& segFile); //notice: seg embeddings are fixed during training
 
 
 	void extractLinearFeatures(vector<string>& features, const Instance* pInstance, int idx);
@@ -69,4 +71,4 @@ public:
 
 };
 
-#endif /* SRC_NNCRF_H_ */
+#endif /* SRC_NNSEmbSemiO1CRFTagger_H_ */
