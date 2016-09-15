@@ -5,12 +5,12 @@
  *      Author: mszhang
  */
 
-#ifndef SRC_NNSemiCRFTagger_H_
-#define SRC_NNSemiCRFTagger_H_
+#ifndef SRC_NNCRFTagger_H_
+#define SRC_NNCRFTagger_H_
 
 
 #include "N3L.h"
-#include "NNSemiCRF.h"
+#include "Driver.h"
 #include "Options.h"
 #include "Instance.h"
 #include "Example.h"
@@ -26,21 +26,18 @@ class Tagger {
 
 
 public:
-	Alphabet m_labelAlphabet;
-	Alphabet m_seglabelAlphabet;
-	vector<int> maxLabelLength;
-	hash_set<string> ignoreLabels;
-	hash_map<string, int> m_feat_stats;
-	hash_map<string, int> m_word_stats;
-	hash_map<string, int> m_char_stats;
-	vector<hash_map<string, int> > m_type_stats;
+	unordered_set<string> ignoreLabels;
+	unordered_map<string, int> m_feat_stats;
+	unordered_map<string, int> m_word_stats;
+	unordered_map<string, int> m_char_stats;
+	vector<unordered_map<string, int> > m_type_stats;
 
 public:
 	Options m_options;
 
 	Pipe m_pipe;
 
-	NNSemiCRF m_classifier;
+	Driver m_driver;
 
 
 public:
@@ -69,4 +66,4 @@ public:
 
 };
 
-#endif /* SRC_NNSemiCRFTagger_H_ */
+#endif /* SRC_NNCRFTagger_H_ */

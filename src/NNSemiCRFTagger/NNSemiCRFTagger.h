@@ -5,12 +5,12 @@
  *      Author: mszhang
  */
 
-#ifndef SRC_NNSEmbSemiCRFTagger_H_
-#define SRC_NNSEmbSemiCRFTagger_H_
+#ifndef SRC_NNSemiCRFTagger_H_
+#define SRC_NNSemiCRFTagger_H_
 
 
 #include "N3L.h"
-#include "NNSEmbSemiCRF.h"
+#include "Driver.h"
 #include "Options.h"
 #include "Instance.h"
 #include "Example.h"
@@ -26,22 +26,18 @@ class Tagger {
 
 
 public:
-	Alphabet m_labelAlphabet;
-	Alphabet m_seglabelAlphabet;
-	vector<int> maxLabelLength;
-	hash_set<string> ignoreLabels;
-	hash_map<string, int> m_feat_stats;
-	hash_map<string, int> m_word_stats;
-	hash_map<string, int> m_char_stats;
-	vector<hash_map<string, int> > m_type_stats;
-	hash_map<string, int> m_seg_stats; // read it by file
+	unordered_set<string> ignoreLabels;
+	unordered_map<string, int> m_feat_stats;
+	unordered_map<string, int> m_word_stats;
+	unordered_map<string, int> m_char_stats;
+	vector<unordered_map<string, int> > m_type_stats;
 
 public:
 	Options m_options;
 
 	Pipe m_pipe;
 
-	NNSEmbSemiCRF m_classifier;
+	Driver m_driver;
 
 
 public:
@@ -52,7 +48,6 @@ public:
 
 	int createAlphabet(const vector<Instance>& vecTrainInsts);
 	int addTestAlpha(const vector<Instance>& vecInsts);
-	void collectSEGAlpha(const vector<Example>& vecInsts, const string& segFile); //notice: seg embeddings are fixed during training
 
 
 	void extractLinearFeatures(vector<string>& features, const Instance* pInstance, int idx);
@@ -71,4 +66,4 @@ public:
 
 };
 
-#endif /* SRC_NNSEmbSemiCRFTagger_H_ */
+#endif /* SRC_NNSemiCRFTagger_H_ */
