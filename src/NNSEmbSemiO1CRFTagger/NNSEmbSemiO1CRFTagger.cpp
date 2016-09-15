@@ -179,7 +179,7 @@ void Tagger::extractFeature(Feature& feat, const Instance* pInstance, int idx) {
 
 }
 
-void Tagger::convert2Example(const Instance* pInstance, Example& exam, bool bTrain) {
+void Tagger::convert2Example(const Instance* pInstance, Example& exam) {
 	exam.clear();
 	const vector<string> &labels = pInstance->labels;
 	int curInstSize = labels.size();
@@ -230,12 +230,12 @@ void Tagger::convert2Example(const Instance* pInstance, Example& exam, bool bTra
 	}
 }
 
-void Tagger::initialExamples(const vector<Instance>& vecInsts, vector<Example>& vecExams, bool bTrain) {
+void Tagger::initialExamples(const vector<Instance>& vecInsts, vector<Example>& vecExams) {
 	int numInstance;
 	for (numInstance = 0; numInstance < vecInsts.size(); numInstance++) {
 		const Instance *pInstance = &vecInsts[numInstance];
 		Example curExam;
-		convert2Example(pInstance, curExam, bTrain);
+		convert2Example(pInstance, curExam);
 		vecExams.push_back(curExam);
 
 		if ((numInstance + 1) % m_options.verboseIter == 0) {
@@ -287,7 +287,7 @@ void Tagger::train(const string& trainFile, const string& devFile, const string&
 	m_driver._hyper_params.maxsegLen = m_options.maxsegLen;
 	m_driver._hyper_params.maxLabelLength.resize(m_driver._model_params._seg_label_alpha.size());
 	assignVec(m_driver._hyper_params.maxLabelLength, 0);
-	initialExamples(trainInsts, trainExamples, true);
+	initialExamples(trainInsts, trainExamples);
 	//print length information
 	std::cout << "Predefined max seg length: " << m_options.maxsegLen << std::endl;
 	for (int j = 0; j < m_driver._model_params._seg_label_alpha.size(); j++){

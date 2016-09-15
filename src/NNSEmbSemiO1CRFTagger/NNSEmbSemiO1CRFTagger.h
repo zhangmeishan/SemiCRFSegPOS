@@ -55,8 +55,8 @@ public:
 	void extractLinearFeatures(vector<string>& features, const Instance* pInstance, int idx);
 	void extractFeature(Feature& feat, const Instance* pInstance, int idx);
 
-	void convert2Example(const Instance* pInstance, Example& exam, bool bTrain = false);
-	void initialExamples(const vector<Instance>& vecInsts, vector<Example>& vecExams, bool bTrain = false);
+	void convert2Example(const Instance* pInstance, Example& exam);
+	void initialExamples(const vector<Instance>& vecInsts, vector<Example>& vecExams);
 
 public:
 	void train(const string& trainFile, const string& devFile, const string& testFile, const string& modelFile, const string& optionFile);
