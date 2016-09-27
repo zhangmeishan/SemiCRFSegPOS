@@ -20,6 +20,7 @@ public:
 	Metric _eval;
 	CheckGrad _checkgrad;
 	ModelUpdate _ada;
+public:
 	inline void initial(){
 		if (!_hyper_params.bVaild()){
 			std::cout << "hyper parameter initialization Error, Please check!" << std::endl;

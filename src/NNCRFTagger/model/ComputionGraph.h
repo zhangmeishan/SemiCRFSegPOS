@@ -148,10 +148,6 @@ public:
 
 			output[idx].forward(this, &(word_hidden2_drop[idx]));
 		}
-
-		for (int idx = 0; idx < seq_size; idx++){
-			exportNode(&output[idx]);
-		}
 	}
 
 };

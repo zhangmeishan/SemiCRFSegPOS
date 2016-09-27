@@ -205,13 +205,6 @@ public:
 				poutput[idx][dist] = &output[offset + dist];
 			}
 		}
-		for (int idx = 0; idx < seq_size; idx++) {
-			offset = idx * max_seg_length;
-			for (int dist = 0; idx + dist < seq_size && dist < max_seg_length; dist++) {
-				exportNode(poutput[idx][dist]);
-			}
-		}
-		
 	}
 
 };
