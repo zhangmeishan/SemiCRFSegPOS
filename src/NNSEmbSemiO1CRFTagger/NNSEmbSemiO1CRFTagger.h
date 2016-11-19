@@ -42,7 +42,7 @@ public:
 
 
 public:
-	Tagger();
+	Tagger(int memsize);
 	virtual ~Tagger();
 
 public:
