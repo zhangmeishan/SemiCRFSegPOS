@@ -7,7 +7,7 @@
 
 class Driver {
 public:
-	Driver() {
+	Driver(int memsize) :_aligned_mem(memsize){
 		_pcg = NULL;
 	}
 
@@ -31,6 +31,8 @@ public:
 
 	CheckGrad _checkgrad;
 
+	AlignedMemoryPool _aligned_mem;
+
 public:
 	//embeddings are initialized before this separately.
 	inline void initial() {
@@ -49,7 +51,7 @@ public:
 
 		_pcg = new ComputionGraph();
 		_pcg->createNodes(ComputionGraph::max_sentence_length, _model_params._loss.maxLen, _model_params._types.size());
-		_pcg->initial(_model_params, _hyper_params);
+		_pcg->initial(_model_params, _hyper_params, &_aligned_mem);
 
 		setUpdateParameters(_hyper_params.nnRegular, _hyper_params.adaAlpha, _hyper_params.adaEps);
 	}
@@ -62,9 +64,7 @@ public:
 		int example_num = examples.size();
 		dtype cost = 0.0;
 
-		static vector<PMat> tpmats;
-
-		for (int count = 0; count < example_num; count++) {
+ for (int count = 0; count < example_num; count++) {
 			const Example& example = examples[count];
 
 			//forward

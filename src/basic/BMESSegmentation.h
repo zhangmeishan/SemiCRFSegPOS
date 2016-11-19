@@ -5,8 +5,8 @@
  *      Author: mason
  */
 
-#ifndef BMESSEGBuilder_H_
-#define BMESSEGBuilder_H_
+#ifndef _BMESSEGBuilder_H_
+#define _BMESSEGBuilder_H_
 
 #include "Param.h"
 #include "MyLib.h"
@@ -22,12 +22,13 @@ struct SegParams {
 	UniParams S;
 	FourParams merge;
 	LookupTable lengths;
+
+	Alphabet length_alpha; // for lengths initial.
 	int inDim;
 	int outDim;
 	int hiddenDim;
 	int maxLength;
 	int lengthDim;
-	Alphabet length_alpha;
 
 	SegParams() {	
 		maxLength = 5;  //  fixed
@@ -43,16 +44,17 @@ struct SegParams {
 		lengths.exportAdaParams(ada);
 	}
 
-	inline void initial(int nOSize, int nHSize, int nISize) {
-		B.initial(nHSize, nISize, true);
-		M.initial(nHSize, nISize, true);
-		E.initial(nHSize, nISize, true);
-		S.initial(nHSize, nISize, true);
-		merge.initial(nOSize, nHSize, nHSize, nHSize, lengthDim, true);
+	inline void initial(int nOSize, int nHSize, int nISize, AlignedMemoryPool* mem = NULL){
+		B.initial(nHSize, nISize, true, mem);
+		M.initial(nHSize, nISize, true, mem);
+		E.initial(nHSize, nISize, true, mem);
+		S.initial(nHSize, nISize, true, mem);
+		merge.initial(nOSize, nHSize, nHSize, nHSize, lengthDim, true, mem);
 		inDim = nISize;
 		outDim = nOSize;
 		hiddenDim = nHSize;	
 		unordered_map<string, int> length_stat;
+
 		for (int idx = 1; idx <= maxLength; idx++){
 			length_stat[obj2string(idx)] = 1;
 		}
@@ -62,7 +64,7 @@ struct SegParams {
 };
 
 // we can rewrite it as one node, but many duplicated codes
-class SegBuilder : NodeBuilder{
+class SegBuilder{
 public:
 	SegParams* _param;
 
@@ -77,12 +79,6 @@ public:
 	MinPoolNode _min;
 	LookupNode _length;
 	vector<UniNode> _tnodes;
-
-	DropNode _length_drop;
-	vector<DropNode> _tnodes_drop;
-	DropNode _output_drop;
-	
-
 public:
 	SegBuilder(){
 		clear();
@@ -92,23 +88,28 @@ public:
 		clear();
 	}
 
-	inline void setParam(SegParams* paramInit, dtype dropout) {
+	inline void init(SegParams* paramInit, dtype dropout, AlignedMemoryPool* mem = NULL) {
 		_param = paramInit;
 		_inDim = _param->inDim;
 		_outDim = _param->outDim;
 		_hiddenDim = _param->hiddenDim;
 		_length.setParam(&_param->lengths);
+		_length.init(_param->lengthDim, dropout, mem);
+		_sum.setParam(_hiddenDim);
+		_sum.init(_hiddenDim, -1, mem);
+		_max.setParam(_hiddenDim);
+		_max.init(_hiddenDim, -1, mem);
+		_min.setParam(_hiddenDim);
+		_min.init(_hiddenDim, -1, mem);
+		int	maxsize = _tnodes.size();
+		for (int idx = 0; idx < maxsize; idx++)
+			_tnodes[idx].init(_hiddenDim, dropout, mem);
 		_output.setParam(&_param->merge);
-
-		for (int idx = 0; idx < _tnodes.size(); idx++){
-			_tnodes_drop[idx].setDropValue(dropout);
-		}
-		_length_drop.setDropValue(dropout);
-		_output_drop.setDropValue(dropout);
+		_output.init(_outDim, dropout, mem);
 	}
 
-	inline void setFunctions(Mat(*f)(const Mat&),
-		Mat(*f_deri)(const Mat&, const Mat&)) {
+	inline void setFunctions(dtype(*f)(const dtype&),
+		dtype(*f_deri)(const dtype&, const dtype&)) {
 		for (int idx = 0; idx < _tnodes.size(); idx++){
 			_tnodes[idx].setFunctions(f, f_deri);
 		}
@@ -117,12 +118,10 @@ public:
 
 	inline void resize(int maxsize){
 		_tnodes.resize(maxsize);
-		_tnodes_drop.resize(maxsize);
 	}
 
 	inline void clear(){
 		_tnodes.clear();
-		_tnodes_drop.clear();
 		_param = NULL;
 		_inDim = 0;
 		_outDim = 0;
@@ -139,7 +138,7 @@ public:
 		}
 
 		_nSize = x.size();
-		if (x[0]->val.rows() != _inDim){
+		if (x[0]->val.dim != _inDim){
 			std::cout << "input dim does not match for seg operation" << std::endl;
 			return;
 		}
@@ -157,18 +156,15 @@ public:
 
 		for (int idx = 0; idx < _nSize; idx++){
 			_tnodes[idx].forward(cg, x[idx]);
-			_tnodes_drop[idx].forward(cg, &_tnodes[idx]);
 		}
 
-		_sum.forward(cg, getPNodes(_tnodes_drop, _nSize));
-		_max.forward(cg, getPNodes(_tnodes_drop, _nSize));
-		_min.forward(cg, getPNodes(_tnodes_drop, _nSize));
+		_sum.forward(cg, getPNodes(_tnodes, _nSize));
+		_max.forward(cg, getPNodes(_tnodes, _nSize));
+		_min.forward(cg, getPNodes(_tnodes, _nSize));
 
 		_length.forward(cg, obj2string(_nSize < _param->maxLength ? _nSize : _param->maxLength));
-		_length_drop.forward(cg, &_length);
 
-		_output.forward(cg, &_sum, &_max, &_min, &_length_drop);
-		_output_drop.forward(cg, &_output);
+		_output.forward(cg, &_sum, &_max, &_min, &_length);
 	}
 
 };
